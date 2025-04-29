@@ -29,7 +29,7 @@
     "styles.css":  "assets/styles.css"
   },
   "proxy": {
-    "origin": "http://localhost:3000",
+    "origin": "https://zendesk-woo.onrender.com",
     "prefix": "/api"
   }
 }
