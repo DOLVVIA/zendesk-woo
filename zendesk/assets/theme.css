@@ -1,0 +1,130 @@
+/* ——— Variables globales ——— */
+:root {
+    --font-family:   'Helvetica Neue', Arial, sans-serif;
+    --font-size:     14px;
+    --btn-padding:   0.6rem 1rem;
+    --btn-radius:    4px;
+    --btn-font-size: 0.95rem;
+    --color-primary: #0052cc;
+    --color-success: #2e7d32;
+    --color-error:   #c62828;
+    --color-info:    #0277bd;
+    --color-light:   #f5f5f5;
+  }
+  
+  /* ——— Unificación de fuente y espaciado ——— */
+  body, input, button {
+    font-family: var(--font-family);
+    font-size: var(--font-size);
+    line-height: 1.4;
+  }
+  
+  /* ——— Botones unificados ——— */
+  button, .btn {
+    display: inline-block;
+    padding: var(--btn-padding);
+    font-size: var(--btn-font-size);
+    border: none;
+    border-radius: var(--btn-radius);
+    cursor: pointer;
+    text-align: center;
+    transition: background-color 0.2s ease;
+  }
+  
+  .btn-primary {
+    background-color: var(--color-primary);
+    color: #fff;
+  }
+  .btn-primary:hover { background-color: darken(var(--color-primary), 10%); }
+  
+  .btn-success {
+    background-color: var(--color-success);
+    color: #fff;
+  }
+  .btn-error {
+    background-color: var(--color-error);
+    color: #fff;
+  }
+  .btn-info {
+    background-color: var(--color-info);
+    color: #fff;
+  }
+  
+  /* ——— Inputs unificados ——— */
+  input[type="text"], select {
+    padding: 0.5rem;
+    border: 1px solid #ccc;
+    border-radius: var(--btn-radius);
+    font-size: var(--font-size);
+  }
+  
+  /* ——— Contenedor full-width en Zendesk ——— */
+  #app {
+    width: 100%;
+    padding: 1rem;
+  }
+  
+  /* ——— Mensajes de estado ——— */
+  #status-message {
+    margin-bottom: 1rem;
+    padding: 0.5rem 1rem;
+    border-radius: var(--btn-radius);
+    display: none;
+    font-weight: bold;
+  }
+  #status-message.info    { background: var(--color-info);    color: #fff; }
+  #status-message.success { background: var(--color-success); color: #fff; }
+  #status-message.error   { background: var(--color-error);   color: #fff; }
+  
+  /* ——— Overlay de “cargando” opcional ——— */
+  .loading-overlay {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(255,255,255,0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.1rem;
+    z-index: 1000;
+    display: none;
+  }
+  
+  /* ——— FORZAR ALTO COMPLETO Y SCROLL ——— */
+html, body {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+  }
+  
+  #app {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+  
+  /* Contenedor de pedidos: ocupa todo el alto sobrante y hace scroll */
+  #resultados {
+    flex: 1;                /* ocupa espacio disponible */
+    overflow-y: auto;
+    padding-right: 0.5rem;  /* evita que el scrollbar tape contenido */
+  }
+  
+  /* Asegúrate de que los paneles internos no tengan límite de altura */
+  .panel {
+    max-height: none !important;
+  }
+
+  /* ——— Quitar scroll interno y expandir todo ——— */
+html, body, #app, #resultados {
+    height: auto !important;
+    overflow: visible !important;
+    padding: 0;
+    margin: 0;
+  }
+  
+  /* Asegura que cada panel muestre todo su contenido */
+  .panel {
+    max-height: none !important;
+  }
+  

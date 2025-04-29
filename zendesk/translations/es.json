@@ -1,0 +1,6 @@
+{
+  "name": "Pedidos WooCommerce",
+  "short_description": "Ver y gestionar pedidos de WooCommerce en tickets de Zendesk",
+  "installation_instructions": "Sube esta app usando Zendesk Apps CLI (`zcli apps:upload --path .`) o instálala desde el Marketplace de Zendesk.",
+  "long_description": "Una app de Zendesk Support que permite a los agentes obtener, ver, editar y gestionar los pedidos de WooCommerce de un cliente directamente en la barra lateral del ticket. Incluye funcionalidades para añadir/quitar artículos, cambiar el estado de pedidos y editar direcciones de facturación/envío."
+}

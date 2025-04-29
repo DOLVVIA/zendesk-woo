@@ -1,0 +1,35 @@
+{
+  "name": "DOLVVIA WOO ZENDESK",
+  "version": "1.0.0",
+  "author": {
+    "name": "DOLVVIA SL",
+    "email": "dolvviasl@gmail.com"
+  },
+  "defaultLocale": "es",
+  "private": false,
+  "frameworkVersion": "2.0",
+  "location": {
+    "support": {
+      "ticket_sidebar": {
+        "url": "assets/iframe.html"
+      }
+    }
+  },
+  "singleInstall": true,
+  "requirements": {
+    "ticket_sidebar": {
+      "support": {
+        "host": ["*"]
+      }
+    }
+  },
+  "assets": {
+    "iframe.html": "assets/iframe.html",
+    "script.js":   "assets/script.js",
+    "styles.css":  "assets/styles.css"
+  },
+  "proxy": {
+    "origin": "http://localhost:3000",
+    "prefix": "/api"
+  }
+}
