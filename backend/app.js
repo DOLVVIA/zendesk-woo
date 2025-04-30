@@ -6,7 +6,7 @@ const cors = require('cors');
 const path = require('path');
 
 // Importación de rutas
-const buscarPedidosRoutes    = require('./routes/buscar-pedidos');
+const ordersRoutes = require('./routes/orders');
 const editarDireccionRoutes  = require('./routes/editar-direccion');
 const getVariacionesRoutes   = require('./routes/get-variaciones');
 const editarItemRoutes       = require('./routes/editar-item');
@@ -29,7 +29,7 @@ app.use(cors());
 app.use(express.json());
 
 // Rutas de API
-app.use('/api', buscarPedidosRoutes);    // GET  /api/buscar-pedidos
+app.use('/api', require('./routes/orders'));   // GET  /api/buscar-pedidos
 app.use('/api', editarDireccionRoutes);  // PUT  /api/editar-direccion
 app.use('/api', getVariacionesRoutes);   // GET  /api/get-variaciones
 app.use('/api', editarItemRoutes);       // PUT  /api/editar-item
