@@ -1,27 +1,35 @@
-const WooCommerceRestApi = require('@woocommerce/woocommerce-rest-api').default;
-const api = new WooCommerceRestApi({
-  url: process.env.WOOCOMMERCE_URL,
-  consumerKey: process.env.WOOCOMMERCE_KEY,
-  consumerSecret: process.env.WOOCOMMERCE_SECRET,
-  version: 'wc/v3',
-});
+// utils/editar-woocommerce.js
+const { createApi } = require('./woocommerce');
 
-// Función que actualiza la dirección del cliente
-async function editarDireccion(email, updatedAddress) {
+/**
+ * Actualiza la dirección de un cliente registrado en WooCommerce.
+ * Si el cliente no existe, lanza un error.
+ *
+ * @param {Object} config
+ * @param {string} config.woocommerce_url
+ * @param {string} config.consumer_key
+ * @param {string} config.consumer_secret
+ * @param {string} email
+ * @param {Object} updatedAddress — objeto con campos de billing/shipping a actualizar
+ * @returns {Promise<Object>} datos del cliente actualizado
+ */
+async function editarDireccion({ woocommerce_url, consumer_key, consumer_secret }, email, updatedAddress) {
+  const api = createApi({ woocommerce_url, consumer_key, consumer_secret });
+
   try {
-    // Obtener el ID del cliente con el email
-    const customers = await api.get('customers', { email });
-    const customerId = customers.data[0]?.id;
+    // 1) Buscar cliente por email
+    const customersRes = await api.get('customers', { email, per_page: 1 });
+    const customer = customersRes.data[0];
+    if (!customer || !customer.id) {
+      throw new Error('Cliente no encontrado');
+    }
 
-    if (!customerId) throw new Error('Cliente no encontrado.');
-
-    // Actualizar la dirección del cliente
-    const response = await api.put(`customers/${customerId}`, updatedAddress);
-
+    // 2) Actualizar dirección del cliente
+    const response = await api.put(`customers/${customer.id}`, updatedAddress);
     return response.data;
-  } catch (error) {
-    console.error('Error al editar dirección:', error);
-    throw new Error('No se pudo editar la dirección.');
+  } catch (err) {
+    console.error('Error en editarDireccion:', err.response?.data || err.message);
+    throw new Error('No se pudo editar la dirección del cliente.');
   }
 }
 

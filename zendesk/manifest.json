@@ -8,6 +8,7 @@
   "defaultLocale": "es",
   "private": false,
   "frameworkVersion": "2.0",
+  "singleInstall": true,
   "location": {
     "support": {
       "ticket_sidebar": {
@@ -15,7 +16,6 @@
       }
     }
   },
-  "singleInstall": true,
   "requirements": {
     "ticket_sidebar": {
       "support": {
@@ -31,5 +31,49 @@
   "proxy": {
     "origin": "https://zendesk-woo.onrender.com",
     "prefix": "/api"
-  }
+  },
+  "parameters": [
+    {
+      "name": "x_zendesk_secret",
+      "type": "text",
+      "required": true,
+      "secure": true
+    },
+    {
+      "name": "woocommerce_url",
+      "type": "text",
+      "required": true,
+      "secure": false
+    },
+    {
+      "name": "woocommerce_consumer_key",
+      "type": "text",
+      "required": true,
+      "secure": true
+    },
+    {
+      "name": "woocommerce_consumer_secret",
+      "type": "text",
+      "required": true,
+      "secure": true
+    },
+    {
+      "name": "stripe_secret_key",
+      "type": "text",
+      "required": true,
+      "secure": true
+    },
+    {
+      "name": "paypal_client_id",
+      "type": "text",
+      "required": true,
+      "secure": true
+    },
+    {
+      "name": "paypal_secret",
+      "type": "text",
+      "required": true,
+      "secure": true
+    }
+  ]
 }

@@ -1,38 +1,58 @@
-// backend/routes/get-stripe-charges.js
 const express = require('express');
-const router  = express.Router();
-const Stripe  = require('stripe');
-
-// Inicializa Stripe con la clave de tu .env
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-  apiVersion: '2022-11-15',
-});
+const Stripe = require('stripe');
+const router = express.Router();
 
 // GET /api/get-stripe-charges?email=cliente@ejemplo.com
+// Body JSON:
+// {
+//   email,                // (optional) you can send email both in query and body, but we prioritize query
+//   stripe_secret_key     // tu clave secreta de Stripe
+// }
 router.get('/get-stripe-charges', async (req, res) => {
-  const { email } = req.query;
+  // 1) Validar cabecera x-zendesk-secret
+  const incomingSecret = req.get('x-zendesk-secret');
+  if (!incomingSecret || incomingSecret !== process.env.ZENDESK_SHARED_SECRET) {
+    return res.status(401).json({ error: 'Unauthorized: x-zendesk-secret inválido' });
+  }
+
+  // 2) Leer parámetros
+  const email = req.query.email || req.body.email;
+  const { stripe_secret_key } = req.body;
+
+  // 3) Validaciones básicas
   if (!email) {
-    return res.status(400).json({ error: 'Falta el parámetro email.' });
+    return res.status(400).json({ error: 'Falta el parámetro email en query o body.' });
+  }
+  if (!stripe_secret_key) {
+    return res.status(400).json({
+      error: 'Falta stripe_secret_key en body para autenticar con Stripe.'
+    });
   }
 
   try {
-    // 1) Buscamos al cliente en Stripe por email
+    // 4) Inicializar Stripe dinámicamente
+    const stripe = new Stripe(stripe_secret_key, { apiVersion: '2022-11-15' });
+
+    // 5) Buscar cliente por email
     const custSearch = await stripe.customers.search({
       query: `email:'${email}'`,
       limit: 1
     });
+
     if (!custSearch.data.length) {
-      return res.json([]);  // ningún cliente → array vacío
+      // Ningún cliente encontrado → devolvemos array vacío
+      return res.json([]);
     }
+
     const customer = custSearch.data[0];
 
-    // 2) Listamos sus cargos
+    // 6) Listar cargos del cliente
     const chargesList = await stripe.charges.list({
       customer: customer.id,
-      limit:    20
+      limit: 20
     });
 
-    // 3) Devolvemos el array de cargos
+    // 7) Devolver array de cargos
     res.json(chargesList.data);
   } catch (err) {
     console.error('Error al buscar clientes o cargos en Stripe:', err);

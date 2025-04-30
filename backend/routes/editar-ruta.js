@@ -1,24 +1,62 @@
 const express = require('express');
 const router = express.Router();
-const { api } = require('../utils/woocommerce');
+const { updateOrder } = require('../utils/editar-woocommerce');
 
+// PUT /api/editar-direccion?order_id=XXX
+// Body JSON: {
+//   billing,
+//   shipping,
+//   woocommerce_url,
+//   consumer_key,
+//   consumer_secret
+// }
 router.put('/editar-direccion', async (req, res) => {
-  console.log('📥 /api/editar-direccion recibe body:', req.body);
+  // 1) Validar cabecera x-zendesk-secret
+  const incomingSecret = req.get('x-zendesk-secret');
+  if (!incomingSecret || incomingSecret !== process.env.ZENDESK_SHARED_SECRET) {
+    return res.status(401).json({ error: 'Unauthorized: x-zendesk-secret inválido' });
+  }
 
-  // Leemos el order_id en vez de email
+  // 2) Leer parámetros
   const { order_id } = req.query;
-  const { billing, shipping } = req.body;
+  const {
+    billing,
+    shipping,
+    woocommerce_url,
+    consumer_key,
+    consumer_secret
+  } = req.body;
+
+  // 3) Validaciones
+  if (!order_id) {
+    return res.status(400).json({ error: 'Falta order_id en query.' });
+  }
+  if (!billing && !shipping) {
+    return res.status(400).json({ error: 'Debe incluir al menos billing o shipping en body.' });
+  }
+  if (!woocommerce_url || !consumer_key || !consumer_secret) {
+    return res.status(400).json({
+      error:
+        'Faltan parámetros de conexión. Incluye woocommerce_url, consumer_key y consumer_secret en body.'
+    });
+  }
 
   try {
-    // Actualiza la dirección directamente en la orden (invitados o registrados)
-    const resp = await api.put(`orders/${order_id}`, { billing, shipping });
+    // 4) Ejecutar la actualización de dirección
+    const updatedOrder = await updateOrder(
+      { woocommerce_url, consumer_key, consumer_secret },
+      order_id,
+      { billing, shipping }
+    );
+
+    // 5) Enviar respuesta
     res.status(200).json({
       message: 'Dirección del pedido actualizada',
-      data: resp.data
+      data: updatedOrder
     });
-  } catch (error) {
-    console.error(error.response?.data || error.message);
-    res.status(500).json({ error: 'Error al actualizar la dirección del pedido' });
+  } catch (err) {
+    console.error('Error al actualizar dirección del pedido:', err.response?.data || err.message);
+    res.status(500).json({ error: 'Error al actualizar la dirección del pedido.' });
   }
 });
 

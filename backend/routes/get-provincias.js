@@ -1,24 +1,56 @@
-// backend/routes/get-provincias.js
 const express = require('express');
-const router  = express.Router();
-const { api } = require('../utils/woocommerce');
+const router = express.Router();
+const { fetchCountryStates } = require('../utils/editar-woocommerce');
 
 // GET /api/get-provincias?country=ES
+// Body JSON: {
+//   woocommerce_url,
+//   consumer_key,
+//   consumer_secret
+// }
 router.get('/get-provincias', async (req, res) => {
-  const country = req.query.country || 'ES';  // por defecto España
+  // 1) Validar cabecera x-zendesk-secret
+  const incomingSecret = req.get('x-zendesk-secret');
+  if (!incomingSecret || incomingSecret !== process.env.ZENDESK_SHARED_SECRET) {
+    return res.status(401).json({ error: 'Unauthorized: x-zendesk-secret inválido' });
+  }
+
+  // 2) Leer parámetros de conexión dinámicos
+  const {
+    woocommerce_url,
+    consumer_key,
+    consumer_secret
+  } = req.body;
+
+  // 3) Validaciones básicas
+  if (!woocommerce_url || !consumer_key || !consumer_secret) {
+    return res.status(400).json({
+      error:
+        'Faltan parámetros de conexión. Incluye woocommerce_url, consumer_key y consumer_secret en body.'
+    });
+  }
+
+  // 4) Leer código de país (default ES)
+  const country = (req.query.country || 'ES').toUpperCase();
+
   try {
-    // Llamada a WooCommerce para traer datos del país y sus estados
-    const { data } = await api.get(`data/countries/${country}`);
-    // data.states es un array [{ code, name }, …]
-    // Extraemos sólo los nombres y los ordenamos
-    const provinces = data.states
+    // 5) Obtener datos del país (incluye estados) usando la utilidad
+    const countryData = await fetchCountryStates(
+      { woocommerce_url, consumer_key, consumer_secret },
+      country
+    );
+
+    // 6) Extraer nombres de provincias, filtrar vacíos y ordenar
+    const provinces = (countryData.states || [])
       .map(s => s.name)
       .filter(Boolean)
       .sort();
+
+    // 7) Devolver la lista de provincias
     res.json(provinces);
   } catch (err) {
-    console.error('Error get-provincias:', err.response?.data || err.message);
-    res.status(500).json({ error: 'no se pudieron cargar provincias' });
+    console.error('Error al obtener provincias:', err.response?.data || err.message);
+    res.status(500).json({ error: 'No se pudieron cargar las provincias.' });
   }
 });
 

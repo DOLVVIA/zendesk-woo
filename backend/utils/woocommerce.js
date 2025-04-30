@@ -1,94 +1,101 @@
-const WooCommerceRestApi = require("@woocommerce/woocommerce-rest-api").default;
-const https = require("https");
+// utils/woocommerce.js
+const WooCommerceRestApi = require('@woocommerce/woocommerce-rest-api').default;
+const https = require('https');
 
-const api = new WooCommerceRestApi({
-  url: process.env.WOOCOMMERCE_URL,
-  consumerKey: process.env.WOOCOMMERCE_KEY,
-  consumerSecret: process.env.WOOCOMMERCE_SECRET,
-  version: 'wc/v3',
-  queryStringAuth: true,
-  axiosConfig: {
-    httpsAgent: new https.Agent({ rejectUnauthorized: false })
-  }
-});
-
-console.log('Woo URL:', process.env.WOOCOMMERCE_URL);
-console.log('Woo KEY:', process.env.WOOCOMMERCE_KEY);
-console.log('Woo SECRET:', process.env.WOOCOMMERCE_SECRET);
-
-// Obtiene pedidos por email (guest u usuario)
-async function obtenerPedidosPorEmail(email) {
-  try {
-    console.log("🧪 Buscando pedidos con el email:", email);
-    const response = await api.get('orders', { search: email });
-    const pedidos = response.data;
-    if (!Array.isArray(pedidos)) {
-      console.warn("La API no devolvió un array de pedidos:", pedidos);
-      return [];
+/**
+ * Crea una instancia de WooCommerceRestApi configurada dinámicamente.
+ *
+ * @param {Object} config
+ * @param {string} config.woocommerce_url
+ * @param {string} config.consumer_key
+ * @param {string} config.consumer_secret
+ * @returns {WooCommerceRestApi}
+ */
+function createApi({ woocommerce_url, consumer_key, consumer_secret }) {
+  return new WooCommerceRestApi({
+    url: woocommerce_url,
+    consumerKey: consumer_key,
+    consumerSecret: consumer_secret,
+    version: 'wc/v3',
+    queryStringAuth: true,
+    axiosConfig: {
+      httpsAgent: new https.Agent({ rejectUnauthorized: false })
     }
-    return pedidos;
-  } catch (error) {
-    console.error('🧨 Error al obtener pedidos:', error.response?.data || error.message);
+  });
+}
+
+/**
+ * Obtiene todos los pedidos (guest o registrados) que coincidan con un email.
+ *
+ * @param {Object} config
+ * @param {string} email
+ * @returns {Promise<Array>} array de pedidos
+ */
+async function obtenerPedidosPorEmail({ woocommerce_url, consumer_key, consumer_secret }, email) {
+  const api = createApi({ woocommerce_url, consumer_key, consumer_secret });
+  try {
+    const res = await api.get('orders', { search: email });
+    const pedidos = res.data;
+    return Array.isArray(pedidos) ? pedidos : [];
+  } catch (err) {
+    console.error('Error en obtenerPedidosPorEmail:', err.response?.data || err.message);
     throw new Error('No se pudieron obtener los pedidos.');
   }
 }
 
-// Obtiene un cliente registrado por email
-async function getUserByEmail(email) {
+/**
+ * Obtiene un usuario registrado por email (cliente de WooCommerce).
+ *
+ * @param {Object} config
+ * @param {string} email
+ * @returns {Promise<Object|null>} datos del cliente o null
+ */
+async function getUserByEmail({ woocommerce_url, consumer_key, consumer_secret }, email) {
+  const api = createApi({ woocommerce_url, consumer_key, consumer_secret });
   try {
-    console.log("🧪 Buscando cliente registrado con el email:", email);
-    const response = await api.get('customers', {
-      email: email,
-      per_page: 1
-    });
-    console.log('📦 Respuesta de getUserByEmail:', response.data);
-
-    if (!response.data || response.data.length === 0) {
-      return null;
-    }
-    return response.data[0];
-  } catch (error) {
-    console.error('🧨 Error al obtener el usuario por email:', error.response?.data || error.message);
+    const res = await api.get('customers', { email, per_page: 1 });
+    return Array.isArray(res.data) && res.data.length ? res.data[0] : null;
+  } catch (err) {
+    console.error('Error en getUserByEmail:', err.response?.data || err.message);
     throw new Error('No se pudo obtener el usuario.');
   }
 }
 
-// Edita la dirección; primero intenta customer, si no existe actualiza la order
-async function editarDireccion(email, updatedAddress) {
+/**
+ * Edita la dirección para un email: primero intenta en customer, si no existe cae en order.
+ *
+ * @param {Object} config
+ * @param {string} email
+ * @param {Object} updatedAddress — campos billing/shipping
+ * @returns {Promise<Object>} datos actualizados
+ */
+async function editarDireccion({ woocommerce_url, consumer_key, consumer_secret }, email, updatedAddress) {
+  const api = createApi({ woocommerce_url, consumer_key, consumer_secret });
+
   try {
-    console.log("🧪 editando dirección para email:", email);
-
-    const user = await getUserByEmail(email);
-    let resourcePath, id;
-
+    const user = await getUserByEmail({ woocommerce_url, consumer_key, consumer_secret }, email);
+    let path;
     if (user && user.id) {
-      id = user.id;
-      resourcePath = `customers/${id}`;
-      console.log('✏️ Actualizando Customer ID:', id);
+      path = `customers/${user.id}`;
     } else {
-      console.log('⚠️ Cliente no registrado. Fallback a Order');
-      const pedidos = await obtenerPedidosPorEmail(email);
+      // fallback a primer pedido del email
+      const pedidos = await obtenerPedidosPorEmail({ woocommerce_url, consumer_key, consumer_secret }, email);
       if (!pedidos.length) {
         throw new Error('No se encontraron pedidos para este email.');
       }
-      id = pedidos[0].id;
-      resourcePath = `orders/${id}`;
-      console.log('✏️ Actualizando Order ID:', id);
+      path = `orders/${pedidos[0].id}`;
     }
-
-    const response = await api.put(resourcePath, updatedAddress);
-    console.log('✅ Actualización exitosa:', response.data);
-    return response.data;
-  } catch (error) {
-    console.error('🧨 Error al actualizar dirección:', error.response?.data || error.message);
+    const res = await api.put(path, updatedAddress);
+    return res.data;
+  } catch (err) {
+    console.error('Error en editarDireccion (fallback):', err.response?.data || err.message);
     throw new Error('No se pudo actualizar la dirección.');
   }
 }
 
 module.exports = {
-  api,
+  createApi,
   obtenerPedidosPorEmail,
   getUserByEmail,
   editarDireccion
 };
-

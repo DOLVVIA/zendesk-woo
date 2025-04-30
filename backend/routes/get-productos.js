@@ -1,22 +1,55 @@
-// backend/routes/get-productos.js
 const express = require('express');
 const router = express.Router();
-const { api } = require('../utils/woocommerce');
+const { fetchProducts } = require('../utils/editar-woocommerce');
 
 // GET /api/get-productos
+// Body JSON: {
+//   woocommerce_url,
+//   consumer_key,
+//   consumer_secret
+// }
 // Devuelve [{ id, name }] de todos los productos (no variaciones).
 router.get('/get-productos', async (req, res) => {
+  // 1) Validar cabecera x-zendesk-secret
+  const incomingSecret = req.get('x-zendesk-secret');
+  if (!incomingSecret || incomingSecret !== process.env.ZENDESK_SHARED_SECRET) {
+    return res.status(401).json({ error: 'Unauthorized: x-zendesk-secret inválido' });
+  }
+
+  // 2) Leer parámetros de conexión dinámicos
+  const {
+    woocommerce_url,
+    consumer_key,
+    consumer_secret
+  } = req.body;
+
+  // 3) Validaciones básicas
+  if (!woocommerce_url || !consumer_key || !consumer_secret) {
+    return res.status(400).json({
+      error:
+        'Faltan parámetros de conexión. Incluye woocommerce_url, consumer_key y consumer_secret en body.'
+    });
+  }
+
   try {
-    // Ajusta per_page si tienes muchos productos
-    const response = await api.get('products', { per_page: 100 });
-    const products = response.data.map(p => ({
+    // 4) Obtener productos usando la utilidad
+    //    Ajusta per_page si tienes muchos productos
+    const productsData = await fetchProducts(
+      { woocommerce_url, consumer_key, consumer_secret },
+      { per_page: 100 }
+    );
+
+    // 5) Mapear al formato requerido
+    const products = productsData.map(p => ({
       id: p.id,
       name: p.name
     }));
+
+    // 6) Devolver la lista de productos
     res.json(products);
   } catch (err) {
     console.error('Error al cargar productos:', err.response?.data || err.message);
-    res.status(500).json({ error: 'No se pudieron obtener los productos' });
+    res.status(500).json({ error: 'No se pudieron obtener los productos.' });
   }
 });
 

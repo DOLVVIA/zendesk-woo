@@ -1,24 +1,51 @@
 const express = require('express');
 const router = express.Router();
-const { obtenerPedidosPorEmail } = require('../utils/woocommerce');
+const { fetchOrdersByEmail } = require('../utils/editar-woocommerce');
 
+// GET /api/buscar-pedidos?email=cliente@ejemplo.com
+// Body JSON: {
+//   email,                // opcional si está en query
+//   woocommerce_url,
+//   consumer_key,
+//   consumer_secret
+// }
 router.get('/buscar-pedidos', async (req, res) => {
-  const { email } = req.query;
-  console.log("📩 Email recibido en backend:", email); // Log de entrada
+  // 1) Validar cabecera x-zendesk-secret
+  const incomingSecret = req.get('x-zendesk-secret');
+  if (!incomingSecret || incomingSecret !== process.env.ZENDESK_SHARED_SECRET) {
+    return res.status(401).json({ error: 'Unauthorized: x-zendesk-secret inválido' });
+  }
 
+  // 2) Leer parámetros
+  const email = req.query.email || req.body.email;
+  const {
+    woocommerce_url,
+    consumer_key,
+    consumer_secret
+  } = req.body;
+
+  // 3) Validaciones básicas
   if (!email) {
-    return res.status(400).json({ error: 'El parámetro email es obligatorio.' });
+    return res.status(400).json({ error: 'El parámetro email es obligatorio en query o body.' });
+  }
+  if (!woocommerce_url || !consumer_key || !consumer_secret) {
+    return res.status(400).json({
+      error: 'Faltan parámetros de conexión. Incluye woocommerce_url, consumer_key y consumer_secret en body.'
+    });
   }
 
   try {
-    console.log("🔍 Llamando a obtenerPedidosPorEmail...");
-    const pedidos = await obtenerPedidosPorEmail(email);
-    console.log("📦 Pedidos obtenidos:", pedidos); // Resultado
+    // 4) Llamar a la utilidad para obtener pedidos por email
+    const pedidos = await fetchOrdersByEmail(
+      { woocommerce_url, consumer_key, consumer_secret },
+      email
+    );
 
+    // 5) Devolver respuesta
     res.json({ email, pedidos });
-  } catch (error) {
-    console.error("🧨 ERROR en la ruta /buscar-pedidos:", error.message || error);
-    res.status(500).json({ error: 'Error al obtener los pedidos reales.' });
+  } catch (err) {
+    console.error('Error al obtener pedidos por email:', err.response?.data || err.message);
+    res.status(500).json({ error: 'Error al obtener los pedidos.' });
   }
 });
 

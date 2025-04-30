@@ -1,29 +1,58 @@
-// backend/routes/paypal.js
-const express  = require('express');
+const express = require('express');
 const checkout = require('@paypal/checkout-server-sdk');
-const router   = express.Router();
+const router = express.Router();
 
-// 1️⃣ Inicializa el cliente PayPal aquí mismo
-const env    = new checkout.core.LiveEnvironment(
-  process.env.PAYPAL_CLIENT_ID,
-  process.env.PAYPAL_SECRET
-);
-const client = new checkout.core.PayPalHttpClient(env);
-
-// 2️⃣ Define la ruta GET /api/get-paypal-transaction
+// GET /api/get-paypal-transaction?captureId=XXX
+// Body JSON: {
+//   paypal_client_id,
+//   paypal_secret,
+//   paypal_env        // 'sandbox' o 'live'
+// }
 router.get('/get-paypal-transaction', async (req, res) => {
-  const { captureId } = req.query;
-  if (!captureId) {
-    return res.status(400).json({ error: 'Falta parámetro captureId.' });
+  // 1) Validar cabecera x-zendesk-secret
+  const incomingSecret = req.get('x-zendesk-secret');
+  if (!incomingSecret || incomingSecret !== process.env.ZENDESK_SHARED_SECRET) {
+    return res.status(401).json({ error: 'Unauthorized: x-zendesk-secret inválido' });
   }
+
+  // 2) Leer parámetros
+  const { captureId } = req.query;
+  const {
+    paypal_client_id,
+    paypal_secret,
+    paypal_env
+  } = req.body;
+
+  // 3) Validaciones básicas
+  if (!captureId) {
+    return res.status(400).json({ error: 'Falta el parámetro captureId en query.' });
+  }
+  if (!paypal_client_id || !paypal_secret || !paypal_env) {
+    return res.status(400).json({
+      error: 'Faltan parámetros de configuración de PayPal. Incluye paypal_client_id, paypal_secret y paypal_env en body.'
+    });
+  }
+
   try {
-    // Usa CapturesGetRequest para obtener una única captura
-    const request  = new checkout.payments.CapturesGetRequest(captureId);
+    // 4) Inicializar PayPal SDK dinámicamente según entorno
+    const { core: paypalCore, payments } = checkout;
+    let environment;
+    if (paypal_env === 'live') {
+      environment = new paypalCore.LiveEnvironment(paypal_client_id, paypal_secret);
+    } else {
+      environment = new paypalCore.SandboxEnvironment(paypal_client_id, paypal_secret);
+    }
+    const client = new paypalCore.PayPalHttpClient(environment);
+
+    // 5) Ejecutar request para obtener la captura
+    const request  = new payments.CapturesGetRequest(captureId);
     const response = await client.execute(request);
-    return res.json([ response.result ]);
+
+    // 6) Devolver resultado (array para mantener compatibilidad)
+    res.json([ response.result ]);
   } catch (err) {
     console.error('Error al obtener captura PayPal:', err);
-    return res.status(500).json({ error: err.message });
+    res.status(500).json({ error: err.message });
   }
 });
 

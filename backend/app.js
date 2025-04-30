@@ -1,50 +1,54 @@
 // backend/app.js
 
 require('dotenv').config();
-const express           = require('express');
-const cors              = require('cors');
-const path              = require('path');
-const ordersRoutes      = require('./routes/orders');
-const editarDireccionRt = require('./routes/editar-ruta');
-const variacionesRoutes = require('./routes/get-variaciones');
-const editarItemRt      = require('./routes/editar-item');
-const cambiarEstadoRt   = require('./routes/cambiar-estado');
-const estadosRoutes     = require('./routes/get-estados');
-const eliminarItemRt      = require('./routes/eliminar-item'); // <-- NUEVO
-const anadirItemRt       = require('./routes/anadir-item');
-const productosRoutes   = require('./routes/get-productos');
-const getCiudades = require('./routes/get-ciudades');
-const getProvincias = require('./routes/get-provincias');
-const refundStripe = require('./routes/refund-stripe');
-const getStripeCharges   = require('./routes/get-stripe-charges');
-const paypalRouter = require('./routes/paypal');
-const refundPaypal = require('./routes/refund-paypal');
+const express = require('express');
+const cors = require('cors');
+const path = require('path');
 
+// Importación de rutas
+const buscarPedidosRoutes    = require('./routes/buscar-pedidos');
+const editarDireccionRoutes  = require('./routes/editar-direccion');
+const getVariacionesRoutes   = require('./routes/get-variaciones');
+const editarItemRoutes       = require('./routes/editar-item');
+const cambiarEstadoRoutes    = require('./routes/cambiar-estado');
+const getEstadosRoutes       = require('./routes/get-estados');
+const eliminarItemRoutes     = require('./routes/eliminar-item');
+const anadirItemRoutes       = require('./routes/anadir-item');
+const getProductosRoutes     = require('./routes/get-productos');
+const getCiudadesRoutes      = require('./routes/get-ciudades');
+const getProvinciasRoutes    = require('./routes/get-provincias');
+const getStripeChargesRoutes = require('./routes/get-stripe-charges');
+const refundStripeRoutes     = require('./routes/refund-stripe');
+const paypalRoutes           = require('./routes/paypal');
+const refundPaypalRoutes     = require('./routes/refund-paypal');
 
 const app = express();
+
+// Middleware
 app.use(cors());
 app.use(express.json());
-app.use('/api', refundStripe);
-app.use('/api', getStripeCharges);
-app.use('/api', paypalRouter);
-app.use('/api', refundPaypal);
 
-// 1) Servir tu frontend (carpeta /frontend)
+// Rutas de API
+app.use('/api', buscarPedidosRoutes);    // GET  /api/buscar-pedidos
+app.use('/api', editarDireccionRoutes);  // PUT  /api/editar-direccion
+app.use('/api', getVariacionesRoutes);   // GET  /api/get-variaciones
+app.use('/api', editarItemRoutes);       // PUT  /api/editar-item
+app.use('/api', cambiarEstadoRoutes);    // PUT  /api/cambiar-estado
+app.use('/api', getEstadosRoutes);       // GET  /api/get-estados
+app.use('/api', eliminarItemRoutes);     // DELETE /api/eliminar-item
+app.use('/api', anadirItemRoutes);       // POST   /api/anadir-item
+app.use('/api', getProductosRoutes);     // GET  /api/get-productos
+app.use('/api', getCiudadesRoutes);      // GET  /api/get-ciudades
+app.use('/api', getProvinciasRoutes);    // GET  /api/get-provincias
+app.use('/api', getStripeChargesRoutes); // GET  /api/get-stripe-charges
+app.use('/api', refundStripeRoutes);     // POST /api/refund-stripe
+app.use('/api', paypalRoutes);           // GET  /api/get-paypal-transaction
+app.use('/api', refundPaypalRoutes);     // POST /api/refund-paypal
+
+// Servir frontend estático
 app.use('/', express.static(path.join(__dirname, '../frontend')));
 
-// 2) Montar todas las rutas REST bajo /api
-app.use('/api', ordersRoutes);          // GET  /api/buscar-pedidos
-app.use('/api', editarDireccionRt);     // PUT  /api/editar-direccion
-app.use('/api', variacionesRoutes);     // GET  /api/get-variaciones
-app.use('/api', editarItemRt);          // PUT  /api/editar-item
-app.use('/api', cambiarEstadoRt);       // PUT  /api/cambiar-estado
-app.use('/api', estadosRoutes);
-app.use('/api', eliminarItemRt);
-app.use('/api', anadirItemRt);
-app.use('/api', productosRoutes);
-app.use('/api', getCiudades);
-app.use('/api', getProvincias);
-// 3) Levantar servidor
+// Levantar servidor
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Servidor corriendo en http://localhost:${PORT}`);

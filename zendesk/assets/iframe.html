@@ -1,33 +1,42 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="utf-8">
+  <meta charset="utf-8" />
   <title>WooCommerce Orders</title>
-  <!-- SDK de Zendesk App Framework v2 -->
+  <!-- Zendesk App Framework SDK v2 -->
   <script src="https://static.zdassets.com/zendesk_app_framework_sdk/2.0/zaf_sdk.min.js"></script>
-  <!-- Hoja de estilos original -->
-  <link rel="stylesheet" href="styles.css">
-  <!-- Tu hoja de estilos de tema para unificar UI -->
-  <link rel="stylesheet" href="theme.css">
+  <!-- Estilos base de la app -->
+  <link rel="stylesheet" href="styles.css" />
+  <!-- Estilos de tema unificado -->
+  <link rel="stylesheet" href="theme.css" />
 </head>
 <body>
   <div id="app">
     <h1>WooCommerce Orders</h1>
-    <!-- Aquí se inyectarán los pedidos -->
+    <!-- Contenedor donde script.js inyectará los pedidos -->
     <div id="resultados">
       <p>Cargando pedidos…</p>
     </div>
   </div>
 
-  <!-- Contenedor para mensajes de estado (info, éxito, error) -->
+  <!-- Mensajes de estado (info, éxito, error) -->
   <div id="status-message"></div>
 
-  <!-- Overlay de carga -->
-  <!-- (se añadirá dinámicamente por theme.js) -->
+  <script>
+    // Inicializa el cliente de Zendesk App Framework
+    const client = ZAFClient.init();
 
-  <!-- Script original de funcionalidad -->
+    // Pasa configuración al script.js si fuera necesario
+    client.on('app.registered', async function() {
+      // Aquí podrías obtener settings, p.ej. el x-zendesk-secret
+      const settings = await client.get('settings');
+      window.APP_SETTINGS = settings['settings'];
+    });
+  </script>
+
+  <!-- Lógica principal: consultará al backend vía proxy (/api) con x-zendesk-secret -->
   <script src="script.js"></script>
-  <!-- Tu script de tema para mostrar loading y mensajes unificados -->
+  <!-- Comportamiento de tema: overlay de carga, notificaciones unificadas -->
   <script src="theme.js"></script>
 </body>
 </html>

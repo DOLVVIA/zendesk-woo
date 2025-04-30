@@ -1,40 +1,67 @@
 // zendesk/assets/script.js
 
-// URL base de tu API local
+// URL base de tu API en Render
 const API_BASE = 'https://zendesk-woo.onrender.com/api';
 
-// Inicializa el cliente Zendesk
+// Inicializa el cliente Zendesk App Framework
 const client = ZAFClient.init();
 
-// Variables globales
+// Configuración cargada desde settings de Zendesk
+let SETTINGS = {};
+
+// Datos cacheados
 let orderStatuses = [];
 let productsList  = [];
-// Lista que vamos a rellenar desde WooCommerce
-let citiesList = [];
+let citiesList    = [];
 let provincesList = [];
 
-// Función para pedir al backend las ciudades únicas
-async function loadCities() {
-  if (citiesList.length) return;  // Ya cargadas, no volver a pedir
-  try {
-    const res = await fetch(`${API_BASE}/get-ciudades`);
-    citiesList = await res.json(); // Asume que viene un array de strings
-  } catch (e) {
-    console.error('Error cargando ciudades:', e);
-  }
+// Espera a que la app esté registrada para obtener settings y arrancar
+client.on('app.registered', async () => {
+  const resp = await client.get('settings');
+  SETTINGS = resp.settings;
+
+  // Carga inicial de datos y pedidos
+  await loadInitialData();
+});
+
+// ——— Helpers de configuración ———
+function getHeaders() {
+  return {
+    'Content-Type': 'application/json',
+    'x-zendesk-secret': SETTINGS.x_zendesk_secret
+  };
 }
 
-// Función para pedir al backend las provincias de un país
-async function loadProvincias() {
-  if (provincesList.length) return;  // si ya las cargó, no repite
-  try {
-    const res = await fetch(`${API_BASE}/get-provincias?country=ES`);
-    provincesList = await res.json();
-  } catch (e) {
-    console.error('Error cargando provincias:', e);
-  }
+function getWooConfig() {
+  return {
+    woocommerce_url:      SETTINGS.woocommerce_url,
+    consumer_key:         SETTINGS.woocommerce_consumer_key,
+    consumer_secret:      SETTINGS.woocommerce_consumer_secret
+  };
 }
 
+function getStripeConfig() {
+  return {
+    stripe_secret_key: SETTINGS.stripe_secret_key
+  };
+}
+
+function getPayPalConfig() {
+  return {
+    paypal_client_id: SETTINGS.paypal_client_id,
+    paypal_secret:    SETTINGS.paypal_secret,
+    paypal_env:       SETTINGS.paypal_env
+  };
+}
+
+// ——— Carga inicial de estados, productos, ciudades, provincias y pedidos ———
+async function loadInitialData() {
+  await loadOrderStatuses();
+  await loadProducts();
+  await loadCities();
+  await loadProvincias();
+  await loadPedidos();
+}
 
 // ——— Función para ajustar el alto del iframe ———
 function ajustarAlto() {
@@ -42,27 +69,64 @@ function ajustarAlto() {
         .catch(console.error);
 }
 
-// ——— 1) Cargar estados ———
-;(async () => {
+// ——— 1) Cargar estados de pedido ———
+async function loadOrderStatuses() {
   try {
-    const res = await fetch(`${API_BASE}/get-estados`);
+    const res = await fetch(`${API_BASE}/get-estados`, {
+      method: 'GET',
+      headers: getHeaders(),
+      body: JSON.stringify(getWooConfig())
+    });
     orderStatuses = await res.json();
   } catch (e) {
     console.error('Error cargando estados:', e);
   }
-})();
+}
 
 // ——— 1.1) Cargar productos ———
 async function loadProducts() {
   if (productsList.length) return;
   try {
-    const res = await fetch(`${API_BASE}/get-productos`);
+    const res = await fetch(`${API_BASE}/get-productos`, {
+      method: 'GET',
+      headers: getHeaders(),
+      body: JSON.stringify(getWooConfig())
+    });
     productsList = await res.json();
   } catch (e) {
     console.error('Error cargando productos:', e);
   }
 }
 
+// ——— Función para pedir al backend las ciudades únicas ———
+async function loadCities() {
+  if (citiesList.length) return;
+  try {
+    const res = await fetch(`${API_BASE}/get-ciudades`, {
+      method: 'GET',
+      headers: getHeaders(),
+      body: JSON.stringify(getWooConfig())
+    });
+    citiesList = await res.json();
+  } catch (e) {
+    console.error('Error cargando ciudades:', e);
+  }
+}
+
+// ——— Función para pedir al backend las provincias de un país ———
+async function loadProvincias() {
+  if (provincesList.length) return;
+  try {
+    const res = await fetch(`${API_BASE}/get-provincias?country=ES`, {
+      method: 'GET',
+      headers: getHeaders(),
+      body: JSON.stringify(getWooConfig())
+    });
+    provincesList = await res.json();
+  } catch (e) {
+    console.error('Error cargando provincias:', e);
+  }
+}
 
 // ——— Helper para toasts ———
 function showMessage(panel, text, type = 'success') {
@@ -78,7 +142,13 @@ function showMessage(panel, text, type = 'success') {
 // 1) Carga los cargos de Stripe para un email
 async function loadStripeCharges(email) {
   try {
-    const res = await fetch(`${API_BASE}/get-stripe-charges?email=${encodeURIComponent(email)}`);
+    const res = await fetch(
+      `${API_BASE}/get-stripe-charges?email=${encodeURIComponent(email)}`, {
+        method: 'GET',
+        headers: getHeaders(),
+        body: JSON.stringify(getStripeConfig())
+      }
+    );
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json();
   } catch (e) {
@@ -87,12 +157,134 @@ async function loadStripeCharges(email) {
   }
 }
 
+// 2) Ejecuta reembolso (completo o parcial)
+async function refundStripe(chargeId, amount, panel) {
+  try {
+    const payload = { chargeId, amount, ...getStripeConfig() };
+    const res = await fetch(`${API_BASE}/refund-stripe`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(payload)
+    });
+    const json = await res.json();
+    if (json.success) {
+      showMessage(panel, `Reembolso OK (ID: ${json.refund.id})`);
+      await loadPedidos();
+    } else {
+      showMessage(panel, `Error reembolso: ${json.error}`, 'error');
+    }
+  } catch (e) {
+    console.error('Error en refundStripe:', e);
+    showMessage(panel, 'Error inesperado al reembolsar', 'error');
+  }
+}
+
+// 3) Renderiza los cargos en <details> con botones y formulario inline para parcial
+function renderStripeCharges(charges, container, panel) {
+  container.innerHTML = '';
+  if (!charges.length) {
+    container.innerHTML = '<p>No hay cargos de Stripe para este cliente.</p>';
+    return;
+  }
+
+  const details = document.createElement('details');
+  const summary = document.createElement('summary');
+  summary.innerText = `Ver pagos (${charges.length})`;
+  details.appendChild(summary);
+
+  const ul = document.createElement('ul');
+  ul.className = 'stripe-payments';
+
+  charges.forEach(c => {
+    const title     = c.metadata?.products || c.description || c.id;
+    const amount    = (c.amount / 100).toFixed(2);
+    const refunded  = (c.amount_refunded || 0) / 100;
+    const isFull    = c.amount_refunded === c.amount;
+    const isPartial = c.amount_refunded > 0 && c.amount_refunded < c.amount;
+
+    // Estado
+    let statusTxt;
+    if (isFull)           statusTxt = 'Reembolsado';
+    else if (isPartial)    statusTxt = `Parcial (${refunded.toFixed(2)} €)`;
+    else                   statusTxt = c.status === 'succeeded' ? 'Exitoso' : 'Fallido';
+
+    const li = document.createElement('li');
+    li.innerHTML = `
+      <div class="payment-info">
+        <span>${title} — ${amount} €</span>
+        <span class="badge ${isFull||isPartial?'success':c.status==='succeeded'?'success':'failed'}">
+          ${statusTxt}
+        </span>
+      </div>
+    `;
+
+    // Botones
+    const fullBtn = document.createElement('button');
+    fullBtn.innerText = 'Reembolso completo';
+    fullBtn.disabled = isFull;
+    fullBtn.addEventListener('click', () => refundStripe(c.id, c.amount, panel));
+
+    const partialBtn = document.createElement('button');
+    partialBtn.innerText = 'Reembolso parcial';
+    partialBtn.disabled = isFull;
+
+    const formPartial = document.createElement('form');
+    formPartial.className = 'partial-refund-form';
+    formPartial.style.display = 'none';
+    formPartial.innerHTML = `
+      <input type="number" name="partial" step="0.01" 
+             min="0.01" max="${amount}" placeholder="Ej: 12.34">
+      <button type="submit">Aceptar</button>
+      <button type="button" class="cancel-partial">Cancelar</button>
+    `;
+    const inputPartial = formPartial.querySelector('input');
+    const btnCancel   = formPartial.querySelector('.cancel-partial');
+
+    partialBtn.addEventListener('click', () => {
+      formPartial.style.display = 'flex';
+      partialBtn.style.display = 'none';
+      inputPartial.focus();
+    });
+
+    formPartial.addEventListener('submit', async ev => {
+      ev.preventDefault();
+      const val = parseFloat(inputPartial.value.replace(',', '.'));
+      if (isNaN(val) || val <= 0 || val > parseFloat(amount)) {
+        return alert('Importe inválido (0 < importe ≤ ' + amount + ')');
+      }
+      const cents = Math.round(val * 100);
+      await refundStripe(c.id, cents, panel);
+    });
+
+    btnCancel.addEventListener('click', () => {
+      formPartial.style.display = 'none';
+      partialBtn.style.display  = '';
+    });
+
+    const btnWrapper = document.createElement('div');
+    btnWrapper.className = 'refund-buttons';
+    btnWrapper.append(fullBtn, partialBtn, formPartial);
+
+    li.appendChild(btnWrapper);
+    ul.appendChild(li);
+  });
+
+  details.appendChild(ul);
+  container.appendChild(details);
+}
+
 // ——— Funciones para PayPal ———
 
 // 1) Carga la(s) transacción(es) de PayPal por captureId
 async function loadPayPalTransaction(captureId) {
   try {
-    const res = await fetch(`${API_BASE}/get-paypal-transaction?captureId=${captureId}`);
+    const res = await fetch(
+      `${API_BASE}/get-paypal-transaction?captureId=${captureId}`, {
+        method: 'GET',
+        headers: getHeaders(),
+        body: JSON.stringify(getPayPalConfig())
+      }
+    );
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json(); // devuelve un array [ { … } ]
   } catch (e) {
@@ -104,15 +296,21 @@ async function loadPayPalTransaction(captureId) {
 // 2) Reembolso PayPal (completo y parcial)
 async function refundPayPal(captureId, amount, currency, panel) {
   try {
+    const payload = {
+      captureId,
+      amount,
+      currency_code: currency,
+      ...getPayPalConfig()
+    };
     const res = await fetch(`${API_BASE}/refund-paypal`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ captureId, amount, currency_code: currency })
+      headers: getHeaders(),
+      body: JSON.stringify(payload)
     });
     const json = await res.json();
     if (json.success) {
       showMessage(panel, `Reembolso OK (PayPal ID: ${json.refund.id})`);
-      await loadPedidos();  // recarga toda la vista
+      await loadPedidos();
     } else {
       showMessage(panel, `Error PayPal: ${json.error}`, 'error');
     }
@@ -147,7 +345,6 @@ function renderPayPalTransactions(txs, container, panel) {
       </div>
     `;
 
-    // Botón reembolso completo
     const btnFull = document.createElement('button');
     btnFull.innerText = 'Reembolso completo';
     btnFull.disabled = tx.status !== 'COMPLETED';
@@ -155,7 +352,6 @@ function renderPayPalTransactions(txs, container, panel) {
       refundPayPal(tx.id, tx.amount.value, tx.amount.currency_code, panel)
     );
 
-    // Botón reembolso parcial
     const btnPartial = document.createElement('button');
     btnPartial.innerText = 'Reembolso parcial';
     btnPartial.disabled = tx.status !== 'COMPLETED';
@@ -200,131 +396,6 @@ function renderPayPalTransactions(txs, container, panel) {
   container.appendChild(details);
 }
 
-
-
-// 2) Ejecuta reembolso (completo o parcial)
-async function refundStripe(chargeId, amount, panel) {
-  try {
-    const res = await fetch(`${API_BASE}/refund-stripe`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chargeId, amount })
-    });
-    const json = await res.json();
-    if (json.success) {
-      showMessage(panel, `Reembolso OK (ID: ${json.refund.id})`);
-      await loadPedidos();  // refresca toda la vista tras el reembolso
-    } else {
-      showMessage(panel, `Error reembolso: ${json.error}`, 'error');
-    }
-  } catch (e) {
-    console.error('Error en refundStripe:', e);
-    showMessage(panel, 'Error inesperado al reembolsar', 'error');
-  }
-}
-
-// 3) Renderiza los cargos en <details> con botones y formulario inline para parcial
-function renderStripeCharges(charges, container, panel) {
-  container.innerHTML = '';
-  if (!charges.length) {
-    container.innerHTML = '<p>No hay cargos de Stripe para este cliente.</p>';
-    return;
-  }
-
-  const details = document.createElement('details');
-  const summary = document.createElement('summary');
-  summary.innerText = `Ver pagos (${charges.length})`;
-  details.appendChild(summary);
-
-  const ul = document.createElement('ul');
-  ul.className = 'stripe-payments';
-
-  charges.forEach(c => {
-    const title     = c.metadata?.products || c.description || c.id;
-    const amount    = (c.amount / 100).toFixed(2);
-    const refunded  = (c.amount_refunded || 0) / 100;
-    const isFull    = c.amount_refunded === c.amount;
-    const isPartial = c.amount_refunded > 0 && c.amount_refunded < c.amount;
-
-    // Estado
-    let statusTxt;
-    if (isFull)    statusTxt = 'Reembolsado';
-    else if (isPartial) statusTxt = `Parcial (${refunded.toFixed(2)} €)`;
-    else           statusTxt = c.status === 'succeeded' ? 'Exitoso' : 'Fallido';
-
-    const li = document.createElement('li');
-    li.innerHTML = `
-      <div class="payment-info">
-        <span>${title} — ${amount} €</span>
-        <span class="badge ${isFull||isPartial?'success':c.status==='succeeded'?'success':'failed'}">
-          ${statusTxt}
-        </span>
-      </div>
-    `;
-
-    // Botones
-    const fullBtn = document.createElement('button');
-    fullBtn.innerText = 'Reembolso completo';
-    fullBtn.disabled = isFull;
-    fullBtn.addEventListener('click', () => refundStripe(c.id, c.amount, panel));
-
-    const partialBtn = document.createElement('button');
-    partialBtn.innerText = 'Reembolso parcial';
-    partialBtn.disabled = isFull;
-    // no llama a prompt, solo muestra el form más abajo
-    partialBtn.addEventListener('click', () => {
-      formPartial.style.display = 'flex';
-      partialBtn.style.display = 'none';
-      inputPartial.focus();
-    });
-
-    // Formulario inline (oculto inicialmente)
-    const formPartial = document.createElement('form');
-    formPartial.className = 'partial-refund-form';
-    formPartial.style.display = 'none';
-    formPartial.innerHTML = `
-      <input type="number" name="partial" step="0.01" 
-             min="0.01" max="${amount}" placeholder="Ej: 12.34">
-      <button type="submit">Aceptar</button>
-      <button type="button" class="cancel-partial">Cancelar</button>
-    `;
-    const inputPartial = formPartial.querySelector('input');
-    const btnSubmit   = formPartial.querySelector('button[type="submit"]');
-    const btnCancel   = formPartial.querySelector('.cancel-partial');
-
-    // Submit parcial
-    formPartial.addEventListener('submit', async ev => {
-      ev.preventDefault();
-      const val = parseFloat(inputPartial.value.replace(',', '.'));
-      if (isNaN(val) || val <= 0 || val > parseFloat(amount)) {
-        return alert('Importe inválido (0 < importe ≤ ' + amount + ')');
-      }
-      const cents = Math.round(val * 100);
-      await refundStripe(c.id, cents, panel);
-    });
-
-    // Cancelar
-    btnCancel.addEventListener('click', () => {
-      formPartial.style.display = 'none';
-      partialBtn.style.display  = '';
-    });
-
-    // Empaqueta todo
-    const btnWrapper = document.createElement('div');
-    btnWrapper.className = 'refund-buttons';
-    btnWrapper.append(fullBtn, partialBtn, formPartial);
-
-    li.appendChild(btnWrapper);
-    ul.appendChild(li);
-  });
-
-  details.appendChild(ul);
-  container.appendChild(details);
-}
-
-
-
-
 // ——— 2) Cargar / recargar pedidos ———
 async function loadPedidos() {
   const { 'ticket.requester.email': email } = await client.get('ticket.requester.email');
@@ -334,11 +405,14 @@ async function loadPedidos() {
   resultados.innerHTML = '';
 
   try {
-    const r = await fetch(`${API_BASE}/buscar-pedidos?email=${encodeURIComponent(email)}`);
-    const { pedidos } = await r.json();
-    // Carga las ciudades antes de pintar cada pedido
-await loadCities();
-await loadProvincias();
+    const res = await fetch(
+      `${API_BASE}/buscar-pedidos?email=${encodeURIComponent(email)}`, {
+        method: 'GET',
+        headers: getHeaders(),
+        body: JSON.stringify(getWooConfig())
+      }
+    );
+    const { pedidos } = await res.json();
 
     if (!pedidos.length) {
       resultados.innerHTML = `<p>No hay pedidos para <strong>${email}</strong>.</p>`;
@@ -346,8 +420,12 @@ await loadProvincias();
       return;
     }
 
+    // Asegurar que ciudades y provincias estén listas
+    await loadCities();
+    await loadProvincias();
+
     pedidos.forEach(async pedido => {
-      // Acordeón
+      // Botón acordeón
       const acc = document.createElement('button');
       acc.className = 'accordion';
       acc.innerText = `Pedido #${pedido.id} – ${pedido.total} € – ${pedido.status}`;
@@ -380,109 +458,105 @@ await loadProvincias();
         `;
       });
 
-// ——— Controles adicionales con DOM puro ———
+      // ——— Controles adicionales ———
 
-// 1) Botón “Añadir artículo”
-const btnAdd = document.createElement('button');
-btnAdd.className = 'btn-add-item';
-btnAdd.dataset.orderId = pedido.id;
-btnAdd.innerText = 'Añadir artículo';
-panel.appendChild(btnAdd);
+      // 1) Añadir artículo
+      const btnAdd = document.createElement('button');
+      btnAdd.className = 'btn-add-item';
+      btnAdd.dataset.orderId = pedido.id;
+      btnAdd.innerText = 'Añadir artículo';
+      panel.appendChild(btnAdd);
 
-// 2) Botón “Cambiar estado”
-const btnStatus = document.createElement('button');
-btnStatus.className = 'btn-change-status';
-btnStatus.dataset.orderId = pedido.id;
-btnStatus.dataset.status  = pedido.status;
-btnStatus.innerText = 'Cambiar estado';
-panel.appendChild(btnStatus);
+      // 2) Cambiar estado
+      const btnStatus = document.createElement('button');
+      btnStatus.className = 'btn-change-status';
+      btnStatus.dataset.orderId = pedido.id;
+      btnStatus.dataset.status  = pedido.status;
+      btnStatus.innerText = 'Cambiar estado';
+      panel.appendChild(btnStatus);
 
-// 3) Botón “Editar Dirección”
-const btnEditAddr = document.createElement('button');
-btnEditAddr.className = 'btn-edit-address';
-btnEditAddr.dataset.orderId = pedido.id;
-btnEditAddr.innerText = 'Editar Dirección';
-panel.appendChild(btnEditAddr);
+      // 3) Editar dirección
+      const btnEditAddr = document.createElement('button');
+      btnEditAddr.className = 'btn-edit-address';
+      btnEditAddr.dataset.orderId = pedido.id;
+      btnEditAddr.innerText = 'Editar Dirección';
+      panel.appendChild(btnEditAddr);
 
-// 4) Formulario de Dirección (oculto al inicio)
-const formAddr = document.createElement('form');
-formAddr.className = 'form-address';
-formAddr.dataset.orderId = pedido.id;
-formAddr.style.display = 'none';
-formAddr.innerHTML = `
-  <h3>Editar Dirección Pedido #${pedido.id}</h3>
-  <label>Nombre:<input name="first_name" type="text" value="${b.first_name||''}"></label>
-  <label>Apellidos:<input name="last_name" type="text" value="${b.last_name||''}"></label>
-  <label>Teléfono:<input name="phone" type="text" value="${b.phone||''}"></label>
-  <label>Dirección:<input name="address_1" type="text" value="${b.address_1||''}"></label>
-  <label>Dirección opc.:<input name="address_2" type="text" value="${b.address_2||''}"></label>
-  <label>Provincia:
-    <select name="state">
-      ${[b.state || '', ...provincesList.filter(p => p !== b.state)]
-          .filter(Boolean)
-          .map(p => `<option value="${p}" ${p===b.state?'selected':''}>${p}</option>`).join('')}
-    </select>
-  </label>
-  <label>Ciudad:
-    <select name="city">
-      ${[b.city || '', ...citiesList.filter(c => c !== b.city)]
-          .filter(Boolean)
-          .map(c => `<option value="${c}" ${c===b.city?'selected':''}>${c}</option>`).join('')}
-    </select>
-  </label>
-  <label>Código postal:<input name="postcode" type="text" value="${b.postcode||''}"></label>
-  <label>País:<input name="country" type="text" value="${b.country||''}"></label>
-  <h4>Envío</h4>
-  <label>Dirección envío:<input name="shipping_address_1" type="text" value="${pedido.shipping?.address_1||''}"></label>
-  <label>Dirección opc. envío:<input name="shipping_address_2" type="text" value="${pedido.shipping?.address_2||''}"></label>
-  <label>Provincia envío:
-    <select name="shipping_state">
-      ${[pedido.shipping?.state || '', ...provincesList.filter(p => p !== pedido.shipping?.state)]
-          .filter(Boolean)
-          .map(p => `<option value="${p}" ${p===pedido.shipping?.state?'selected':''}>${p}</option>`).join('')}
-    </select>
-  </label>
-  <label>Ciudad envío:
-    <select name="shipping_city">
-      ${[pedido.shipping?.city || '', ...citiesList.filter(c => c !== pedido.shipping?.city)]
-          .filter(Boolean)
-          .map(c => `<option value="${c}" ${c===pedido.shipping?.city?'selected':''}>${c}</option>`).join('')}
-    </select>
-  </label>
-  <label>Código postal envío:<input name="shipping_postcode" type="text" value="${pedido.shipping?.postcode||''}"></label>
-  <label>País envío:<input name="shipping_country" type="text" value="${pedido.shipping?.country||''}"></label>
-  <button type="button" class="btn-save-address">Guardar Dirección</button>
-`;
-panel.appendChild(formAddr);
+      // 4) Formulario de Dirección
+      const formAddr = document.createElement('form');
+      formAddr.className = 'form-address';
+      formAddr.dataset.orderId = pedido.id;
+      formAddr.style.display = 'none';
+      formAddr.innerHTML = `
+        <h3>Editar Dirección Pedido #${pedido.id}</h3>
+        <label>Nombre:<input name="first_name" type="text" value="${b.first_name||''}"></label>
+        <label>Apellidos:<input name="last_name" type="text" value="${b.last_name||''}"></label>
+        <label>Teléfono:<input name="phone" type="text" value="${b.phone||''}"></label>
+        <label>Dirección:<input name="address_1" type="text" value="${b.address_1||''}"></label>
+        <label>Dirección opc.:<input name="address_2" type="text" value="${b.address_2||''}"></label>
+        <label>Provincia:
+          <select name="state">
+            ${[b.state || '', ...provincesList.filter(p => p !== b.state)]
+                .filter(Boolean)
+                .map(p => `<option value="${p}" ${p===b.state?'selected':''}>${p}</option>`).join('')}
+          </select>
+        </label>
+        <label>Ciudad:
+          <select name="city">
+            ${[b.city || '', ...citiesList.filter(c => c !== b.city)]
+                .filter(Boolean)
+                .map(c => `<option value="${c}" ${c===b.city?'selected':''}>${c}</option>`).join('')}
+          </select>
+        </label>
+        <label>Código postal:<input name="postcode" type="text" value="${b.postcode||''}"></label>
+        <label>País:<input name="country" type="text" value="${b.country||''}"></label>
+        <h4>Envío</h4>
+        <label>Dirección envío:<input name="shipping_address_1" type="text" value="${pedido.shipping?.address_1||''}"></label>
+        <label>Dirección opc. envío:<input name="shipping_address_2" type="text" value="${pedido.shipping?.address_2||''}"></label>
+        <label>Provincia envío:
+          <select name="shipping_state">
+            ${[pedido.shipping?.state || '', ...provincesList.filter(p => p !== pedido.shipping?.state)]
+                .filter(Boolean)
+                .map(p => `<option value="${p}" ${p===pedido.shipping?.state?'selected':''}>${p}</option>`).join('')}
+          </select>
+        </label>
+        <label>Ciudad envío:
+          <select name="shipping_city">
+            ${[pedido.shipping?.city || '', ...citiesList.filter(c => c !== pedido.shipping?.city)]
+                .filter(Boolean)
+                .map(c => `<option value="${c}" ${c===pedido.shipping?.city?'selected':''}>${c}</option>`).join('')}
+          </select>
+        </label>
+        <label>Código postal envío:<input name="shipping_postcode" type="text" value="${pedido.shipping?.postcode||''}"></label>
+        <label>País envío:<input name="shipping_country" type="text" value="${pedido.shipping?.country||''}"></label>
+        <button type="button" class="btn-save-address">Guardar Dirección</button>
+      `;
+      panel.appendChild(formAddr);
 
+      // ——— Sección Stripe ———
+      const stripeSection = document.createElement('div');
+      stripeSection.className = 'stripe-section';
+      stripeSection.innerHTML = '<h4>Cargos Stripe</h4>';
+      panel.appendChild(stripeSection);
+      const charges = await loadStripeCharges(b.email);
+      renderStripeCharges(charges, stripeSection, panel);
 
+      // ——— Sección PayPal ———
+      const captureId =
+        pedido.transaction_id ||
+        (pedido.meta_data?.find(m => m.key === 'transaction_id')?.value);
 
-// ——— Sección Stripe ———
-const stripeSection = document.createElement('div');
-stripeSection.className = 'stripe-section';
-stripeSection.innerHTML = '<h4>Cargos Stripe</h4>';
-panel.appendChild(stripeSection);
+      const paypalSection = document.createElement('div');
+      paypalSection.className = 'paypal-section';
+      paypalSection.innerHTML = '<h4>Transacción PayPal</h4>';
+      panel.appendChild(paypalSection);
 
-// Carga y renderiza los cargos de Stripe
-const charges = await loadStripeCharges(b.email);
-renderStripeCharges(charges, stripeSection, panel);
-
-// ——— Sección PayPal ———
-const captureId =
-  pedido.transaction_id ||
-  (pedido.meta_data?.find(m => m.key === 'transaction_id')?.value);
-
-const paypalSection = document.createElement('div');
-paypalSection.className = 'paypal-section';
-paypalSection.innerHTML = '<h4>Transacción PayPal</h4>';
-panel.appendChild(paypalSection);
-
-if (captureId) {
-  const paypalTxs = await loadPayPalTransaction(captureId);
-  renderPayPalTransactions(paypalTxs, paypalSection, panel);
-} else {
-  paypalSection.innerHTML += '<p>No hay transacción PayPal para este pedido.</p>';
-}
+      if (captureId) {
+        const paypalTxs = await loadPayPalTransaction(captureId);
+        renderPayPalTransactions(paypalTxs, paypalSection, panel);
+      } else {
+        paypalSection.innerHTML += '<p>No hay transacción PayPal para este pedido.</p>';
+      }
 
       resultados.appendChild(acc);
       resultados.appendChild(panel);
@@ -499,13 +573,11 @@ if (captureId) {
     ajustarAlto();
   } catch (err) {
     console.error('Error al buscar pedidos:', err);
-    document.getElementById('resultados').innerHTML = `<p style="color:red;">Error al buscar pedidos.</p>`;
+    document.getElementById('resultados').innerHTML =
+      `<p style="color:red;">Error al buscar pedidos.</p>`;
     ajustarAlto();
   }
 }
-
-// Arranca al cargar
-window.addEventListener('load', loadPedidos);
 
 // ——— 3) Editar talla/cantidad ———
 document.addEventListener('click', async e => {
@@ -520,8 +592,14 @@ document.addEventListener('click', async e => {
 
   let vars = [];
   try {
-    const r = await fetch(`${API_BASE}/get-variaciones?product_id=${productId}`);
-    vars = await r.json();
+    const res = await fetch(
+      `${API_BASE}/get-variaciones?product_id=${productId}`, {
+        method: 'GET',
+        headers: getHeaders(),
+        body: JSON.stringify(getWooConfig())
+      }
+    );
+    vars = await res.json();
   } catch {}
 
   const match = prodDiv.innerText.match(/\(x(\d+)\)/);
@@ -562,17 +640,16 @@ document.addEventListener('click', async e => {
     const body = { quantity: +fd.get('quantity') };
     if (vars.length) body.variation_id = +fd.get('variation_id');
     const custom = fd.get('custom_total');
-    if (custom) {
-      // lo convertimos a string con 2 decimales
-      body.total = parseFloat(custom).toFixed(2);
-    }
-    
+    if (custom) body.total = parseFloat(custom).toFixed(2);
+
     try {
-      await fetch(`${API_BASE}/editar-item?order_id=${orderId}&line_index=${lineIndex}`, {
-        method: 'PUT',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify(body)
-      });
+      await fetch(
+        `${API_BASE}/editar-item?order_id=${orderId}&line_index=${lineIndex}`, {
+          method: 'PUT',
+          headers: getHeaders(),
+          body: JSON.stringify({ ...body, ...getWooConfig() })
+        }
+      );
       showMessage(panel, 'Artículo actualizado.');
       form.remove();
       prodDiv.style.display = '';
@@ -603,7 +680,13 @@ document.addEventListener('click', async e => {
     };
     div.querySelector('.confirm-delete').onclick = async () => {
       try {
-        await fetch(`${API_BASE}/eliminar-item?order_id=${btn.dataset.orderId}&line_index=${btn.dataset.index}`, { method:'DELETE' });
+        await fetch(
+          `${API_BASE}/eliminar-item?order_id=${btn.dataset.orderId}&line_index=${btn.dataset.index}`, {
+            method: 'DELETE',
+            headers: getHeaders(),
+            body: JSON.stringify(getWooConfig())
+          }
+        );
         showMessage(panel, 'Artículo eliminado.');
         await loadPedidos();
       } catch {
@@ -641,7 +724,7 @@ document.addEventListener('click', async e => {
       <label>Precio total (opcional):
         <input name="custom_total" type="number" step="0.01" placeholder="Ej: 59.90">
       </label>
-      <button type="submit">Añadir<td></button>
+      <button type="submit">Añadir</button>
       <button type="button" class="cancel-add">Cancelar</button>
     </div>
   `;
@@ -661,11 +744,19 @@ document.addEventListener('click', async e => {
       return;
     }
     try {
-      const r = await fetch(`${API_BASE}/get-variaciones?product_id=${prodSel.value}`);
-      const vars = await r.json();
+      const res = await fetch(
+        `${API_BASE}/get-variaciones?product_id=${prodSel.value}`, {
+          method: 'GET',
+          headers: getHeaders(),
+          body: JSON.stringify(getWooConfig())
+        }
+      );
+      const vars = await res.json();
       if (vars.length) {
         varSel.disabled = false;
-        varSel.innerHTML = vars.map(v => `<option value="${v.id}">${v.attributes.map(a=>a.option).join(' / ')}</option>`).join('');
+        varSel.innerHTML = vars.map(v =>
+          `<option value="${v.id}">${v.attributes.map(a=>a.option).join(' / ')}</option>`
+        ).join('');
       } else {
         varSel.disabled = true;
         varSel.innerHTML = `<option>– N/A –</option>`;
@@ -679,22 +770,27 @@ document.addEventListener('click', async e => {
   form.onsubmit = async ev => {
     ev.preventDefault();
     const fd = new FormData(form);
-    const payload = { product_id:+fd.get('product_id'), quantity:+fd.get('quantity') };
+    const payload = {
+      product_id: +fd.get('product_id'),
+      quantity:   +fd.get('quantity')
+    };
     if (!varSel.disabled) payload.variation_id = +fd.get('variation_id');
     const custom = fd.get('custom_total');
     if (custom) payload.total = parseFloat(custom).toFixed(2);
 
     try {
-      await fetch(`${API_BASE}/anadir-item?order_id=${btn.dataset.orderId}`, {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify(payload)
-      });
-      showMessage(panel,'Artículo añadido.');
+      await fetch(
+        `${API_BASE}/anadir-item?order_id=${btn.dataset.orderId}`, {
+          method: 'POST',
+          headers: getHeaders(),
+          body: JSON.stringify({ ...payload, ...getWooConfig() })
+        }
+      );
+      showMessage(panel, 'Artículo añadido.');
       form.remove();
       await loadPedidos();
     } catch {
-      showMessage(panel,'Error al añadir artículo.','error');
+      showMessage(panel, 'Error al añadir artículo.', 'error');
     }
   };
 });
@@ -712,24 +808,19 @@ document.addEventListener('click', e => {
 document.addEventListener('click', e => {
   if (e.target.matches('.btn-change-status')) {
     const orderId = e.target.dataset.orderId;
-    const panel = e.target.closest('.panel');
+    const panel   = e.target.closest('.panel');
     if (panel.querySelector('.select-status')) return;
 
     const sel = document.createElement('select');
     sel.className = 'select-status';
     sel.dataset.orderId = orderId;
-// sacamos el estado actual del pedido
-const current = e.target.dataset.status;
-
-orderStatuses.forEach(s => {
-  sel.innerHTML += `
-    <option
-      value="${s.slug}"
-      ${s.slug === current ? 'selected' : ''}
-    >
-      ${s.name}
-    </option>`;
-});
+    const current = e.target.dataset.status;
+    orderStatuses.forEach(s => {
+      sel.innerHTML += `
+        <option value="${s.slug}" ${s.slug === current ? 'selected' : ''}>
+          ${s.name}
+        </option>`;
+    });
 
     const btnAccept = document.createElement('button');
     btnAccept.className = 'btn-status-accept';
@@ -756,17 +847,19 @@ orderStatuses.forEach(s => {
 
 document.addEventListener('click', async e => {
   if (!e.target.matches('.btn-status-accept')) return;
-  const panel = e.target.closest('.panel');
-  const sel = panel.querySelector('.select-status');
+  const panel   = e.target.closest('.panel');
+  const sel     = panel.querySelector('.select-status');
   const orderId = sel.dataset.orderId;
   const newStatus = sel.value;
 
   try {
-    await fetch(`${API_BASE}/cambiar-estado?order_id=${orderId}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: newStatus })
-    });
+    await fetch(
+      `${API_BASE}/cambiar-estado?order_id=${orderId}`, {
+        method: 'PUT',
+        headers: getHeaders(),
+        body: JSON.stringify({ status: newStatus, ...getWooConfig() })
+      }
+    );
     showMessage(panel, 'Estado actualizado.');
   } catch {
     showMessage(panel, 'Error cambiando estado.', 'error');
@@ -792,7 +885,7 @@ document.addEventListener('click', async e => {
       phone:      fd.get('phone'),
       address_1:  fd.get('address_1'),
       address_2:  fd.get('address_2'),
-      state:      fd.get('state'),          // ← agregado
+      state:      fd.get('state'),
       city:       fd.get('city'),
       postcode:   fd.get('postcode'),
       country:    fd.get('country')
@@ -800,7 +893,7 @@ document.addEventListener('click', async e => {
     shipping: {
       address_1: fd.get('shipping_address_1'),
       address_2: fd.get('shipping_address_2'),
-      state:     fd.get('shipping_state'), // ← agregado
+      state:     fd.get('shipping_state'),
       city:      fd.get('shipping_city'),
       postcode:  fd.get('shipping_postcode'),
       country:   fd.get('shipping_country')
@@ -809,11 +902,10 @@ document.addEventListener('click', async e => {
 
   try {
     await fetch(
-      `${API_BASE}/editar-direccion?order_id=${form.dataset.orderId}`,
-      {
+      `${API_BASE}/editar-direccion?order_id=${form.dataset.orderId}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        headers: getHeaders(),
+        body: JSON.stringify({ ...payload, ...getWooConfig() })
       }
     );
     showMessage(panel, 'Dirección actualizada.');
@@ -822,4 +914,3 @@ document.addEventListener('click', async e => {
     showMessage(panel, 'Error guardando dirección.', 'error');
   }
 });
-
