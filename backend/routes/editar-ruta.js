@@ -1,9 +1,11 @@
+// backend/routes/editar-direccion.js
+
 const express = require('express');
 const router = express.Router();
-const { updateOrder } = require('../utils/editar-woocommerce');
+const { createApi } = require('../utils/woocommerce');
 
 // PUT /api/editar-direccion?order_id=XXX&billing=...&shipping=...&woocommerce_url=...&consumer_key=...&consumer_secret=...
-router.put('/editar-direccion', async (req, res) => {
+router.put('/', async (req, res) => {
   // 1) Validar cabecera x-zendesk-secret
   const incomingSecret = req.get('x-zendesk-secret');
   if (!incomingSecret || incomingSecret !== process.env.ZENDESK_SHARED_SECRET) {
@@ -35,17 +37,19 @@ router.put('/editar-direccion', async (req, res) => {
   }
 
   try {
-    // 4) Ejecutar la actualización de dirección
-    const updatedOrder = await updateOrder(
-      { woocommerce_url, consumer_key, consumer_secret },
-      order_id,
-      { billing, shipping }
-    );
+    // 4) Construir cliente y payload
+    const api = createApi({ woocommerce_url, consumer_key, consumer_secret });
+    const payload = {};
+    if (billing)  payload.billing  = JSON.parse(billing);
+    if (shipping) payload.shipping = JSON.parse(shipping);
 
-    // 5) Enviar respuesta
+    // 5) Ejecutar la actualización de la orden
+    const response = await api.put(`orders/${order_id}`, payload);
+
+    // 6) Enviar respuesta
     res.status(200).json({
       message: 'Dirección del pedido actualizada',
-      data: updatedOrder
+      data: response.data
     });
   } catch (err) {
     console.error('Error al actualizar dirección del pedido:', err.response?.data || err.message);
