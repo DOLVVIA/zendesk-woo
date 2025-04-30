@@ -1,190 +1,80 @@
-// backend/utils/woocommerce.js
+// backend/routes/anadir-item.js
 
-const WooCommerceRestApi = require('@woocommerce/woocommerce-rest-api').default;
-const https = require('https');
+const express = require('express');
+const router = express.Router();
+const { addLineItemToOrder, fetchOrderById } = require('../utils/woocommerce');
 
-/**
- * Crea una instancia del cliente WooCommerce con configuración TLS opcional.
- */
-function createApi({ woocommerce_url, consumer_key, consumer_secret }) {
-  return new WooCommerceRestApi({
-    url: woocommerce_url,
-    consumerKey: consumer_key,
-    consumerSecret: consumer_secret,
-    version: 'wc/v3',
-    queryStringAuth: true,
-    axiosConfig: {
-      httpsAgent: new https.Agent({ rejectUnauthorized: false })
-    }
-  });
-}
-
-/**
- * Obtiene pedidos filtrando por correo del cliente.
- */
-async function obtenerPedidosPorEmail(config, email) {
-  const api = createApi(config);
-  try {
-    const res = await api.get('orders', { search: email });
-    return Array.isArray(res.data) ? res.data : [];
-  } catch (err) {
-    console.error('Error en obtenerPedidosPorEmail:', err.response?.data || err.message);
-    throw new Error('No se pudieron obtener los pedidos.');
+// POST /api/anadir-item?order_id=XXX
+// Body JSON: {
+//   product_id: number,
+//   variation_id?: number,
+//   quantity: number,
+//   woocommerce_url: string,
+//   consumer_key: string,
+//   consumer_secret: string
+// }
+router.post('/', async (req, res) => {
+  // 1) Validar cabecera x-zendesk-secret
+  const incomingSecret = req.get('x-zendesk-secret');
+  if (!incomingSecret || incomingSecret !== process.env.ZENDESK_SHARED_SECRET) {
+    return res.status(401).json({ error: 'Unauthorized: x-zendesk-secret inválido' });
   }
-}
 
-/**
- * Obtiene un usuario de WooCommerce por email.
- */
-async function getUserByEmail(config, email) {
-  const api = createApi(config);
-  try {
-    const res = await api.get('customers', { email, per_page: 1 });
-    return Array.isArray(res.data) && res.data.length ? res.data[0] : null;
-  } catch (err) {
-    console.error('Error en getUserByEmail:', err.response?.data || err.message);
-    throw new Error('No se pudo obtener el usuario.');
+  // 2) Leer parámetros de conexión y datos de la petición
+  const { order_id } = req.query;
+  const {
+    product_id,
+    variation_id,
+    quantity,
+    woocommerce_url,
+    consumer_key,
+    consumer_secret
+  } = req.body;
+
+  // 3) Validaciones
+  if (!order_id) {
+    return res.status(400).json({ error: 'Falta order_id en query.' });
   }
-}
-
-/**
- * Edita la dirección de un cliente (si existe) o, en fallback, del primer pedido de ese email.
- */
-async function editarDireccion(config, email, updatedAddress) {
-  const api = createApi(config);
-  try {
-    const user = await getUserByEmail(config, email);
-    let path;
-    if (user && user.id) {
-      path = `customers/${user.id}`;
-    } else {
-      const pedidos = await obtenerPedidosPorEmail(config, email);
-      if (!pedidos.length) throw new Error('No se encontraron pedidos para este email.');
-      path = `orders/${pedidos[0].id}`;
-    }
-    const res = await api.put(path, updatedAddress);
-    return res.data;
-  } catch (err) {
-    console.error('Error en editarDireccion (fallback):', err.response?.data || err.message);
-    throw new Error('No se pudo actualizar la dirección.');
-  }
-}
-
-/**
- * Obtiene los estados posibles de pedidos.
- */
-async function fetchOrderStatuses(config) {
-  const api = createApi(config);
-  try {
-    const res = await api.get('orders/statuses');
-    return res.data;
-  } catch (err) {
-    console.error('Error en fetchOrderStatuses:', err.response?.data || err.message);
-    throw new Error('No se pudieron obtener los estados de pedido.');
-  }
-}
-
-/**
- * Obtiene la lista de productos (hasta 100 ítems por página).
- */
-async function fetchProducts(config) {
-  const api = createApi(config);
-  try {
-    const res = await api.get('products', { per_page: 100 });
-    return res.data;
-  } catch (err) {
-    console.error('Error en fetchProducts:', err.response?.data || err.message);
-    throw new Error('No se pudieron obtener los productos.');
-  }
-}
-
-/**
- * Obtiene las provincias (estados) de un país dado (por defecto ES).
- */
-async function fetchCountryStates(config, countryCode = 'ES') {
-  const api = createApi(config);
-  try {
-    const res = await api.get(`data/countries/${countryCode}`);
-    return res.data.states || [];
-  } catch (err) {
-    console.error('Error en fetchCountryStates:', err.response?.data || err.message);
-    throw new Error('No se pudieron obtener las provincias.');
-  }
-}
-
-/**
- * Fallback: obtener pedidos sin filtro (hasta 100).
- */
-async function fetchOrders(config) {
-  const api = createApi(config);
-  try {
-    const res = await api.get('orders', { per_page: 100 });
-    return res.data;
-  } catch (err) {
-    console.error('Error en fetchOrders:', err.response?.data || err.message);
-    throw new Error('No se pudieron obtener los pedidos.');
-  }
-}
-
-/**
- * Actualiza cualquier pedido con el payload dado (por ejemplo, billing/shipping).
- */
-async function updateOrder(config, orderId, data) {
-  const api = createApi(config);
-  try {
-    const res = await api.put(`orders/${orderId}`, data);
-    return res.data;
-  } catch (err) {
-    console.error('Error en updateOrder:', err.response?.data || err.message);
-    throw new Error('No se pudo actualizar el pedido.');
-  }
-}
-
-/**
- * Añade líneas de ítems a un pedido.
- */
-async function addLineItemToOrder(config, orderId, lineItems) {
-  const api = createApi(config);
-  try {
-    // batch endpoint for line items
-    const res = await api.post(`orders/${orderId}/line_items/batch`, {
-      create: lineItems.map(item => ({
-        product_id: Number(item.product_id),
-        quantity: Number(item.quantity),
-        ...(item.variation_id ? { variation_id: Number(item.variation_id) } : {})
-      }))
+  if (!product_id || quantity == null) {
+    return res.status(400).json({
+      error: 'Faltan parámetros en body. Debes enviar product_id y quantity.'
     });
-    return res.data;
-  } catch (err) {
-    console.error('Error en addLineItemToOrder:', err.response?.data || err.message);
-    throw new Error('No se pudo añadir el artículo al pedido.');
   }
-}
+  if (!woocommerce_url || !consumer_key || !consumer_secret) {
+    return res.status(400).json({
+      error: 'Faltan parámetros de conexión. Incluye woocommerce_url, consumer_key y consumer_secret en body.'
+    });
+  }
 
-/**
- * Recupera un pedido completo por su ID.
- */
-async function fetchOrderById(config, orderId) {
-  const api = createApi(config);
   try {
-    const res = await api.get(`orders/${orderId}`);
-    return res.data;
-  } catch (err) {
-    console.error('Error en fetchOrderById:', err.response?.data || err.message);
-    throw new Error('No se pudo obtener el pedido.');
-  }
-}
+    // 4) Construir la línea de item
+    const lineItem = {
+      product_id: Number(product_id),
+      quantity: Number(quantity)
+    };
+    if (variation_id != null) {
+      lineItem.variation_id = Number(variation_id);
+    }
 
-module.exports = {
-  createApi,
-  obtenerPedidosPorEmail,
-  getUserByEmail,
-  editarDireccion,
-  fetchOrderStatuses,
-  fetchProducts,
-  fetchCountryStates,
-  fetchOrders,
-  updateOrder,
-  addLineItemToOrder,
-  fetchOrderById
-};
+    // 5) Añadir línea al pedido
+    await addLineItemToOrder(
+      { woocommerce_url, consumer_key, consumer_secret },
+      order_id,
+      [lineItem]
+    );
+
+    // 6) Recuperar pedido actualizado
+    const updatedOrder = await fetchOrderById(
+      { woocommerce_url, consumer_key, consumer_secret },
+      order_id
+    );
+
+    // 7) Devolver resultado
+    res.json(updatedOrder);
+  } catch (err) {
+    console.error('Error al añadir item al pedido:', err.response?.data || err.message);
+    res.status(500).json({ error: 'No se pudo añadir el artículo al pedido.' });
+  }
+});
+
+module.exports = router;
