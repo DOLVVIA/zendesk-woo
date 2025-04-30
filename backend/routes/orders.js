@@ -2,13 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { fetchOrdersByEmail } = require('../utils/editar-woocommerce');
 
-// GET /api/buscar-pedidos?email=cliente@ejemplo.com
-// Body JSON: {
-//   email,                // opcional si está en query
-//   woocommerce_url,
-//   consumer_key,
-//   consumer_secret
-// }
+// GET /api/buscar-pedidos?email=cliente@ejemplo.com&woocommerce_url=...&consumer_key=...&consumer_secret=...
 router.get('/buscar-pedidos', async (req, res) => {
   // 1) Validar cabecera x-zendesk-secret
   const incomingSecret = req.get('x-zendesk-secret');
@@ -16,21 +10,21 @@ router.get('/buscar-pedidos', async (req, res) => {
     return res.status(401).json({ error: 'Unauthorized: x-zendesk-secret inválido' });
   }
 
-  // 2) Leer parámetros
-  const email = req.query.email || req.body.email;
+  // 2) Leer parámetros desde query
   const {
+    email,
     woocommerce_url,
     consumer_key,
     consumer_secret
-  } = req.body;
+  } = req.query;
 
   // 3) Validaciones básicas
   if (!email) {
-    return res.status(400).json({ error: 'El parámetro email es obligatorio en query o body.' });
+    return res.status(400).json({ error: 'El parámetro email es obligatorio en query.' });
   }
   if (!woocommerce_url || !consumer_key || !consumer_secret) {
     return res.status(400).json({
-      error: 'Faltan parámetros de conexión. Incluye woocommerce_url, consumer_key y consumer_secret en body.'
+      error: 'Faltan parámetros de conexión. Incluye woocommerce_url, consumer_key y consumer_secret en query.'
     });
   }
 
