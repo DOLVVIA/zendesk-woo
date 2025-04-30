@@ -3,7 +3,8 @@ const router = express.Router();
 const { fetchCountryStates } = require('../utils/woocommerce');
 
 // GET /api/get-provincias?country=ES&woocommerce_url=...&consumer_key=...&consumer_secret=...
-router.get('/get-provincias', async (req, res) => {
+/api/get-provincias/get-provincias
+router.get('/', async (req, res) => {
   // 1) Validar cabecera x-zendesk-secret
   const incomingSecret = req.get('x-zendesk-secret');
   if (!incomingSecret || incomingSecret !== process.env.ZENDESK_SHARED_SECRET) {

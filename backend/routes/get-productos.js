@@ -4,7 +4,7 @@ const { fetchProducts } = require('../utils/woocommerce');
 
 // GET /api/get-productos?woocommerce_url=...&consumer_key=...&consumer_secret=...
 // Devuelve [{ id, name }] de todos los productos (no variaciones).
-router.get('/get-productos', async (req, res) => {
+router.get('/', async (req, res) => {
   // 1) Validar cabecera x-zendesk-secret
   const incomingSecret = req.get('x-zendesk-secret');
   if (!incomingSecret || incomingSecret !== process.env.ZENDESK_SHARED_SECRET) {

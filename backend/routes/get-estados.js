@@ -3,7 +3,7 @@ const router = express.Router();
 const { fetchOrderStatuses } = require('../utils/woocommerce');
 
 // GET /api/get-estados?woocommerce_url=...&consumer_key=...&consumer_secret=...
-router.get('/get-estados', async (req, res) => {
+router.get('/', async (req, res) => {
   // 1) Validar cabecera x-zendesk-secret
   const incomingSecret = req.get('x-zendesk-secret');
   if (!incomingSecret || incomingSecret !== process.env.ZENDESK_SHARED_SECRET) {
