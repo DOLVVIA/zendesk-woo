@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { fetchCountryStates } = require('../utils/editar-woocommerce');
+const { fetchCountryStates } = require('../utils/woocommerce');
 
 // GET /api/get-provincias?country=ES&woocommerce_url=...&consumer_key=...&consumer_secret=...
 router.get('/get-provincias', async (req, res) => {
@@ -10,11 +10,12 @@ router.get('/get-provincias', async (req, res) => {
     return res.status(401).json({ error: 'Unauthorized: x-zendesk-secret inválido' });
   }
 
-  // 2) Leer parámetros dinámicos de req.query
+  // 2) Leer parámetros de conexión dinámicos de req.query
   const {
     woocommerce_url,
     consumer_key,
-    consumer_secret
+    consumer_secret,
+    country = 'ES'
   } = req.query;
 
   // 3) Validaciones básicas
@@ -25,18 +26,18 @@ router.get('/get-provincias', async (req, res) => {
     });
   }
 
-  // 4) Leer código de país (default ES)
-  const country = (req.query.country || 'ES').toUpperCase();
+  // 4) Normalizar código de país
+  const countryCode = String(country).toUpperCase();
 
   try {
-    // 5) Obtener datos del país (incluye estados) usando la utilidad
-    const countryData = await fetchCountryStates(
+    // 5) Obtener estados/provincias del país usando la utilidad
+    const states = await fetchCountryStates(
       { woocommerce_url, consumer_key, consumer_secret },
-      country
+      countryCode
     );
 
     // 6) Extraer nombres de provincias, filtrar vacíos y ordenar
-    const provinces = (countryData.states || [])
+    const provinces = (states || [])
       .map(s => s.name)
       .filter(Boolean)
       .sort();

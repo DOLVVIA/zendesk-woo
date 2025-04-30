@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { fetchOrders } = require('../utils/editar-woocommerce');
+const { fetchOrders } = require('../utils/woocommerce');
 
 // GET /api/get-ciudades?woocommerce_url=...&consumer_key=...&consumer_secret=...
 router.get('/get-ciudades', async (req, res) => {
@@ -26,11 +26,12 @@ router.get('/get-ciudades', async (req, res) => {
   }
 
   try {
-    // 4) Traer todos los pedidos (solo billing.city) vía la utilidad
-    const orders = await fetchOrders(
-      { woocommerce_url, consumer_key, consumer_secret },
-      { per_page: 100, _fields: ['billing.city'] }
-    );
+    // 4) Traer todos los pedidos usando la utilidad
+    const orders = await fetchOrders({
+      woocommerce_url,
+      consumer_key,
+      consumer_secret
+    });
 
     // 5) Extraer ciudades, eliminar duplicados y ordenar
     const cities = Array.from(

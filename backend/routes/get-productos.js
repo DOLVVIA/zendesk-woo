@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { fetchProducts } = require('../utils/editar-woocommerce');
+const { fetchProducts } = require('../utils/woocommerce');
 
 // GET /api/get-productos?woocommerce_url=...&consumer_key=...&consumer_secret=...
 // Devuelve [{ id, name }] de todos los productos (no variaciones).
@@ -28,11 +28,11 @@ router.get('/get-productos', async (req, res) => {
 
   try {
     // 4) Obtener productos usando la utilidad
-    //    Ajusta per_page si tienes muchos productos
-    const productsData = await fetchProducts(
-      { woocommerce_url, consumer_key, consumer_secret },
-      { per_page: 100 }
-    );
+    const productsData = await fetchProducts({
+      woocommerce_url,
+      consumer_key,
+      consumer_secret
+    });
 
     // 5) Mapear al formato requerido
     const products = productsData.map(p => ({

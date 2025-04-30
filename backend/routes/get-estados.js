@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { fetchOrderStatuses } = require('../utils/editar-woocommerce');
+const { fetchOrderStatuses } = require('../utils/woocommerce');
 
 // GET /api/get-estados?woocommerce_url=...&consumer_key=...&consumer_secret=...
 router.get('/get-estados', async (req, res) => {
@@ -27,9 +27,11 @@ router.get('/get-estados', async (req, res) => {
 
   try {
     // 4) Obtener los estados de pedido usando la utilidad
-    const statuses = await fetchOrderStatuses(
-      { woocommerce_url, consumer_key, consumer_secret }
-    );
+    const statuses = await fetchOrderStatuses({
+      woocommerce_url,
+      consumer_key,
+      consumer_secret
+    });
 
     // 5) Devolver la lista de estados
     res.json(statuses);
