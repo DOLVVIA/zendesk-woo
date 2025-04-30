@@ -1,16 +1,6 @@
-// utils/woocommerce.js
 const WooCommerceRestApi = require('@woocommerce/woocommerce-rest-api').default;
 const https = require('https');
 
-/**
- * Crea una instancia de WooCommerceRestApi configurada dinámicamente.
- *
- * @param {Object} config
- * @param {string} config.woocommerce_url
- * @param {string} config.consumer_key
- * @param {string} config.consumer_secret
- * @returns {WooCommerceRestApi}
- */
 function createApi({ woocommerce_url, consumer_key, consumer_secret }) {
   return new WooCommerceRestApi({
     url: woocommerce_url,
@@ -24,32 +14,19 @@ function createApi({ woocommerce_url, consumer_key, consumer_secret }) {
   });
 }
 
-/**
- * Obtiene todos los pedidos (guest o registrados) que coincidan con un email.
- *
- * @param {Object} config
- * @param {string} email
- * @returns {Promise<Array>} array de pedidos
- */
+// Buscar pedidos por email
 async function obtenerPedidosPorEmail({ woocommerce_url, consumer_key, consumer_secret }, email) {
   const api = createApi({ woocommerce_url, consumer_key, consumer_secret });
   try {
     const res = await api.get('orders', { search: email });
-    const pedidos = res.data;
-    return Array.isArray(pedidos) ? pedidos : [];
+    return Array.isArray(res.data) ? res.data : [];
   } catch (err) {
     console.error('Error en obtenerPedidosPorEmail:', err.response?.data || err.message);
     throw new Error('No se pudieron obtener los pedidos.');
   }
 }
 
-/**
- * Obtiene un usuario registrado por email (cliente de WooCommerce).
- *
- * @param {Object} config
- * @param {string} email
- * @returns {Promise<Object|null>} datos del cliente o null
- */
+// Buscar usuario por email
 async function getUserByEmail({ woocommerce_url, consumer_key, consumer_secret }, email) {
   const api = createApi({ woocommerce_url, consumer_key, consumer_secret });
   try {
@@ -61,14 +38,7 @@ async function getUserByEmail({ woocommerce_url, consumer_key, consumer_secret }
   }
 }
 
-/**
- * Edita la dirección para un email: primero intenta en customer, si no existe cae en order.
- *
- * @param {Object} config
- * @param {string} email
- * @param {Object} updatedAddress — campos billing/shipping
- * @returns {Promise<Object>} datos actualizados
- */
+// Editar dirección (en cliente o pedido)
 async function editarDireccion({ woocommerce_url, consumer_key, consumer_secret }, email, updatedAddress) {
   const api = createApi({ woocommerce_url, consumer_key, consumer_secret });
 
@@ -78,11 +48,8 @@ async function editarDireccion({ woocommerce_url, consumer_key, consumer_secret 
     if (user && user.id) {
       path = `customers/${user.id}`;
     } else {
-      // fallback a primer pedido del email
       const pedidos = await obtenerPedidosPorEmail({ woocommerce_url, consumer_key, consumer_secret }, email);
-      if (!pedidos.length) {
-        throw new Error('No se encontraron pedidos para este email.');
-      }
+      if (!pedidos.length) throw new Error('No se encontraron pedidos para este email.');
       path = `orders/${pedidos[0].id}`;
     }
     const res = await api.put(path, updatedAddress);
@@ -93,9 +60,61 @@ async function editarDireccion({ woocommerce_url, consumer_key, consumer_secret 
   }
 }
 
+// Estados de pedidos
+async function fetchOrderStatuses(config) {
+  const api = createApi(config);
+  try {
+    const res = await api.get('orders/statuses');
+    return res.data;
+  } catch (err) {
+    console.error('Error en fetchOrderStatuses:', err.response?.data || err.message);
+    throw new Error('No se pudieron obtener los estados de pedido.');
+  }
+}
+
+// Productos
+async function fetchProducts(config) {
+  const api = createApi(config);
+  try {
+    const res = await api.get('products', { per_page: 100 });
+    return res.data;
+  } catch (err) {
+    console.error('Error en fetchProducts:', err.response?.data || err.message);
+    throw new Error('No se pudieron obtener los productos.');
+  }
+}
+
+// Provincias por país (por defecto ES)
+async function fetchCountryStates(config, countryCode = 'ES') {
+  const api = createApi(config);
+  try {
+    const res = await api.get(`data/countries/${countryCode}`);
+    return res.data.states || [];
+  } catch (err) {
+    console.error('Error en fetchCountryStates:', err.response?.data || err.message);
+    throw new Error('No se pudieron obtener las provincias.');
+  }
+}
+
+// Fallback: obtener pedidos generales
+async function fetchOrders(config) {
+  const api = createApi(config);
+  try {
+    const res = await api.get('orders', { per_page: 100 });
+    return res.data;
+  } catch (err) {
+    console.error('Error en fetchOrders:', err.response?.data || err.message);
+    throw new Error('No se pudieron obtener los pedidos.');
+  }
+}
+
 module.exports = {
   createApi,
   obtenerPedidosPorEmail,
   getUserByEmail,
-  editarDireccion
+  editarDireccion,
+  fetchOrderStatuses,
+  fetchProducts,
+  fetchCountryStates,
+  fetchOrders
 };
