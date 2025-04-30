@@ -37,7 +37,7 @@
       "name": "x_zendesk_secret",
       "type": "text",
       "required": true,
-      "secure": true
+      "secure": false
     },
     {
       "name": "woocommerce_url",
@@ -49,31 +49,31 @@
       "name": "woocommerce_consumer_key",
       "type": "text",
       "required": true,
-      "secure": true
+      "secure": false
     },
     {
       "name": "woocommerce_consumer_secret",
       "type": "text",
       "required": true,
-      "secure": true
+      "secure": false
     },
     {
       "name": "stripe_secret_key",
       "type": "text",
       "required": true,
-      "secure": true
+      "secure": false
     },
     {
       "name": "paypal_client_id",
       "type": "text",
       "required": true,
-      "secure": true
+      "secure": false
     },
     {
       "name": "paypal_secret",
       "type": "text",
       "required": true,
-      "secure": true
+      "secure": false
     }
   ]
 }
