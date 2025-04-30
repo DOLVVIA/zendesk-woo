@@ -1,9 +1,11 @@
+// backend/routes/get-variaciones.js
+
 const express = require('express');
 const router = express.Router();
-const { fetchProductVariations } = require('../utils/editar-woocommerce');
+const { createApi } = require('../utils/woocommerce');
 
 // GET /api/get-variaciones?product_id=123&woocommerce_url=...&consumer_key=...&consumer_secret=...
-router.get('/get-variaciones', async (req, res) => {
+router.get('/', async (req, res) => {
   // 1) Validar cabecera x-zendesk-secret
   const incomingSecret = req.get('x-zendesk-secret');
   if (!incomingSecret || incomingSecret !== process.env.ZENDESK_SHARED_SECRET) {
@@ -34,14 +36,14 @@ router.get('/get-variaciones', async (req, res) => {
   }
 
   try {
-    // 4) Obtener variaciones usando la utilidad
-    const variations = await fetchProductVariations(
-      { woocommerce_url, consumer_key, consumer_secret },
-      product_id
-    );
-
-    // 5) Devolver array de variaciones
-    res.json(variations);
+    // 4) Construir cliente WooCommerce
+    const api = createApi({ woocommerce_url, consumer_key, consumer_secret });
+    // 5) Obtener variaciones
+    const response = await api.get(`products/${product_id}/variations`, {
+      per_page: 100
+    });
+    // 6) Devolver array de variaciones
+    res.json(response.data);
   } catch (err) {
     console.error(
       'Error al obtener variaciones del producto:',

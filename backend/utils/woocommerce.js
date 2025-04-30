@@ -3,6 +3,9 @@
 const WooCommerceRestApi = require('@woocommerce/woocommerce-rest-api').default;
 const https = require('https');
 
+/**
+ * Crea una instancia del cliente WooCommerce con configuración TLS opcional.
+ */
 function createApi({ woocommerce_url, consumer_key, consumer_secret }) {
   return new WooCommerceRestApi({
     url: woocommerce_url,
@@ -16,98 +19,109 @@ function createApi({ woocommerce_url, consumer_key, consumer_secret }) {
   });
 }
 
-// Buscar pedidos por email
-async function obtenerPedidosPorEmail({ woocommerce_url, consumer_key, consumer_secret }, email) {
-  const api = createApi({ woocommerce_url, consumer_key, consumer_secret });
-  try {
-    const res = await api.get('orders', { search: email });
-    return Array.isArray(res.data) ? res.data : [];
-  } catch (err) {
-    console.error('Error en obtenerPedidosPorEmail:', err.response?.data || err.message);
-    throw new Error('No se pudieron obtener los pedidos.');
-  }
+/**
+ * Obtiene pedidos filtrando por correo del cliente.
+ */
+async function obtenerPedidosPorEmail(config, email) {
+  const api = createApi(config);
+  const res = await api.get('orders', { search: email });
+  return Array.isArray(res.data) ? res.data : [];
 }
 
-// Buscar usuario por email
-async function getUserByEmail({ woocommerce_url, consumer_key, consumer_secret }, email) {
-  const api = createApi({ woocommerce_url, consumer_key, consumer_secret });
-  try {
-    const res = await api.get('customers', { email, per_page: 1 });
-    return Array.isArray(res.data) && res.data.length ? res.data[0] : null;
-  } catch (err) {
-    console.error('Error en getUserByEmail:', err.response?.data || err.message);
-    throw new Error('No se pudo obtener el usuario.');
-  }
+/**
+ * Obtiene un usuario de WooCommerce por email.
+ */
+async function getUserByEmail(config, email) {
+  const api = createApi(config);
+  const res = await api.get('customers', { email, per_page: 1 });
+  return Array.isArray(res.data) && res.data.length ? res.data[0] : null;
 }
 
-// Editar dirección (en cliente o pedido)
-async function editarDireccion({ woocommerce_url, consumer_key, consumer_secret }, email, updatedAddress) {
-  const api = createApi({ woocommerce_url, consumer_key, consumer_secret });
-
-  try {
-    const user = await getUserByEmail({ woocommerce_url, consumer_key, consumer_secret }, email);
-    let path;
-    if (user && user.id) {
-      path = `customers/${user.id}`;
-    } else {
-      const pedidos = await obtenerPedidosPorEmail({ woocommerce_url, consumer_key, consumer_secret }, email);
-      if (!pedidos.length) throw new Error('No se encontraron pedidos para este email.');
-      path = `orders/${pedidos[0].id}`;
-    }
-    const res = await api.put(path, updatedAddress);
-    return res.data;
-  } catch (err) {
-    console.error('Error en editarDireccion (fallback):', err.response?.data || err.message);
-    throw new Error('No se pudo actualizar la dirección.');
+/**
+ * Edita la dirección de un cliente (si existe) o, en fallback, del primer pedido.
+ */
+async function editarDireccion(config, email, updatedAddress) {
+  const api = createApi(config);
+  const user = await getUserByEmail(config, email);
+  let path;
+  if (user && user.id) {
+    path = `customers/${user.id}`;
+  } else {
+    const pedidos = await obtenerPedidosPorEmail(config, email);
+    if (!pedidos.length) throw new Error('No se encontraron pedidos para este email.');
+    path = `orders/${pedidos[0].id}`;
   }
+  const res = await api.put(path, updatedAddress);
+  return res.data;
 }
 
-// Estados de pedidos
+/**
+ * Obtiene los estados posibles de pedidos.
+ */
 async function fetchOrderStatuses(config) {
   const api = createApi(config);
-  try {
-    const res = await api.get('orders/statuses');
-    return res.data;
-  } catch (err) {
-    console.error('Error en fetchOrderStatuses:', err.response?.data || err.message);
-    throw new Error('No se pudieron obtener los estados de pedido.');
-  }
+  const res = await api.get('orders/statuses');
+  return res.data;
 }
 
-// Productos
+/**
+ * Obtiene la lista de productos (hasta 100 ítems por página).
+ */
 async function fetchProducts(config) {
   const api = createApi(config);
-  try {
-    const res = await api.get('products', { per_page: 100 });
-    return res.data;
-  } catch (err) {
-    console.error('Error en fetchProducts:', err.response?.data || err.message);
-    throw new Error('No se pudieron obtener los productos.');
-  }
+  const res = await api.get('products', { per_page: 100 });
+  return res.data;
 }
 
-// Provincias por país (por defecto ES)
+/**
+ * Obtiene las provincias (estados) de un país dado (por defecto ES).
+ */
 async function fetchCountryStates(config, countryCode = 'ES') {
   const api = createApi(config);
-  try {
-    const res = await api.get(`data/countries/${countryCode}`);
-    return res.data.states || [];
-  } catch (err) {
-    console.error('Error en fetchCountryStates:', err.response?.data || err.message);
-    throw new Error('No se pudieron obtener las provincias.');
-  }
+  const res = await api.get(`data/countries/${countryCode}`);
+  return res.data.states || [];
 }
 
-// Fallback: obtener pedidos generales
+/**
+ * Fallback: obtener pedidos sin filtro (hasta 100).
+ */
 async function fetchOrders(config) {
   const api = createApi(config);
-  try {
-    const res = await api.get('orders', { per_page: 100 });
-    return res.data;
-  } catch (err) {
-    console.error('Error en fetchOrders:', err.response?.data || err.message);
-    throw new Error('No se pudieron obtener los pedidos.');
-  }
+  const res = await api.get('orders', { per_page: 100 });
+  return res.data;
+}
+
+/**
+ * Recupera un pedido completo por su ID.
+ */
+async function fetchOrderById(config, orderId) {
+  const api = createApi(config);
+  const res = await api.get(`orders/${orderId}`);
+  return res.data;
+}
+
+/**
+ * Actualiza cualquier pedido con el payload dado (billing, shipping, status, line_items...).
+ */
+async function updateOrder(config, orderId, data) {
+  const api = createApi(config);
+  const res = await api.put(`orders/${orderId}`, data);
+  return res.data;
+}
+
+/**
+ * Añade líneas de ítems a un pedido.
+ */
+async function addLineItemToOrder(config, orderId, lineItems) {
+  const api = createApi(config);
+  const res = await api.post(`orders/${orderId}/line_items/batch`, {
+    create: lineItems.map(item => ({
+      product_id: Number(item.product_id),
+      quantity: Number(item.quantity),
+      ...(item.variation_id ? { variation_id: Number(item.variation_id) } : {})
+    }))
+  });
+  return res.data;
 }
 
 module.exports = {
@@ -118,5 +132,8 @@ module.exports = {
   fetchOrderStatuses,
   fetchProducts,
   fetchCountryStates,
-  fetchOrders
+  fetchOrders,
+  fetchOrderById,
+  updateOrder,
+  addLineItemToOrder
 };

@@ -1,12 +1,11 @@
+// backend/routes/editar-item.js
+
 const express = require('express');
 const router = express.Router();
-const {
-  fetchOrderById,
-  updateOrder
-} = require('../utils/editar-woocommerce');
+const { fetchOrderById, updateOrder } = require('../utils/woocommerce');
 
 // PUT /api/editar-item?order_id=123&line_index=0&variation_id?&quantity=...&total?&woocommerce_url=...&consumer_key=...&consumer_secret=...
-router.put('/editar-item', async (req, res) => {
+router.put('/', async (req, res) => {
   // 1) Validar cabecera x-zendesk-secret
   const incomingSecret = req.get('x-zendesk-secret');
   if (!incomingSecret || incomingSecret !== process.env.ZENDESK_SHARED_SECRET) {

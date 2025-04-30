@@ -1,12 +1,11 @@
+// backend/routes/eliminar-item.js
+
 const express = require('express');
 const router = express.Router();
-const {
-  fetchOrderById,
-  updateOrder
-} = require('../utils/editar-woocommerce');
+const { fetchOrderById, updateOrder } = require('../utils/woocommerce');
 
 // DELETE /api/eliminar-item?order_id=XXX&line_index=Y&woocommerce_url=...&consumer_key=...&consumer_secret=...
-router.delete('/eliminar-item', async (req, res) => {
+router.delete('/', async (req, res) => {
   // 1) Validar cabecera x-zendesk-secret
   const incomingSecret = req.get('x-zendesk-secret');
   if (!incomingSecret || incomingSecret !== process.env.ZENDESK_SHARED_SECRET) {

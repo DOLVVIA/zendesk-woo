@@ -1,19 +1,18 @@
+// backend/routes/cambiar-estado.js
+
 const express = require('express');
 const router = express.Router();
-const {
-  changeOrderStatus,
-  fetchOrderById
-} = require('../utils/editar-woocommerce');
+const { updateOrder, fetchOrderById } = require('../utils/woocommerce');
 
 // PUT /api/cambiar-estado?order_id=123&status=...&woocommerce_url=...&consumer_key=...&consumer_secret=...
-router.put('/cambiar-estado', async (req, res) => {
+router.put('/', async (req, res) => {
   // 1) Validar cabecera x-zendesk-secret
   const incomingSecret = req.get('x-zendesk-secret');
   if (!incomingSecret || incomingSecret !== process.env.ZENDESK_SHARED_SECRET) {
     return res.status(401).json({ error: 'Unauthorized: x-zendesk-secret inválido' });
   }
 
-  // 2) Leer parámetros dinámicos de req.query
+  // 2) Leer parámetros de conexión y datos
   const {
     order_id,
     status,
@@ -22,7 +21,7 @@ router.put('/cambiar-estado', async (req, res) => {
     consumer_secret
   } = req.query;
 
-  // 3) Validar que tengamos todo lo necesario
+  // 3) Validaciones
   if (!order_id) {
     return res.status(400).json({ error: 'Falta order_id en query.' });
   }
@@ -37,22 +36,21 @@ router.put('/cambiar-estado', async (req, res) => {
   }
 
   try {
-    // 4) Cambiar estado usando la utilidad
-    await changeOrderStatus(
+    // 4) Cambiar el estado del pedido
+    await updateOrder(
       { woocommerce_url, consumer_key, consumer_secret },
       order_id,
-      status
+      { status }
     );
 
-    // 5) Recuperar pedido actualizado para devolverlo
+    // 5) Recuperar el pedido actualizado
     const updatedOrder = await fetchOrderById(
       { woocommerce_url, consumer_key, consumer_secret },
       order_id
     );
 
-    // 6) Devolver pedido actualizado
+    // 6) Devolver al cliente
     res.json(updatedOrder);
-
   } catch (err) {
     console.error('Error al cambiar estado del pedido:', err.response?.data || err.message);
     res.status(500).json({ error: 'No se pudo cambiar el estado del pedido.' });
