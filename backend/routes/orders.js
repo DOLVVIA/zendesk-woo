@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { fetchOrdersByEmail } = require('../utils/editar-woocommerce');
+const { getPedidosPorEmail } = require('../utils/editar-woocommerce');
 
 // GET /api/buscar-pedidos?email=cliente@ejemplo.com&woocommerce_url=...&consumer_key=...&consumer_secret=...
 router.get('/buscar-pedidos', async (req, res) => {
@@ -30,7 +30,7 @@ router.get('/buscar-pedidos', async (req, res) => {
 
   try {
     // 4) Llamar a la utilidad para obtener pedidos por email
-    const pedidos = await fetchOrdersByEmail(
+    const pedidos = await getPedidosPorEmail(
       { woocommerce_url, consumer_key, consumer_secret },
       email
     );

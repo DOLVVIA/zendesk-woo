@@ -2,14 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { updateOrder } = require('../utils/editar-woocommerce');
 
-// PUT /api/editar-direccion?order_id=XXX
-// Body JSON: {
-//   billing,
-//   shipping,
-//   woocommerce_url,
-//   consumer_key,
-//   consumer_secret
-// }
+// PUT /api/editar-direccion?order_id=XXX&billing=...&shipping=...&woocommerce_url=...&consumer_key=...&consumer_secret=...
 router.put('/editar-direccion', async (req, res) => {
   // 1) Validar cabecera x-zendesk-secret
   const incomingSecret = req.get('x-zendesk-secret');
@@ -17,27 +10,27 @@ router.put('/editar-direccion', async (req, res) => {
     return res.status(401).json({ error: 'Unauthorized: x-zendesk-secret inválido' });
   }
 
-  // 2) Leer parámetros
-  const { order_id } = req.query;
+  // 2) Leer parámetros dinámicos de req.query
   const {
+    order_id,
     billing,
     shipping,
     woocommerce_url,
     consumer_key,
     consumer_secret
-  } = req.body;
+  } = req.query;
 
   // 3) Validaciones
   if (!order_id) {
     return res.status(400).json({ error: 'Falta order_id en query.' });
   }
   if (!billing && !shipping) {
-    return res.status(400).json({ error: 'Debe incluir al menos billing o shipping en body.' });
+    return res.status(400).json({ error: 'Debe incluir al menos billing o shipping en query.' });
   }
   if (!woocommerce_url || !consumer_key || !consumer_secret) {
     return res.status(400).json({
       error:
-        'Faltan parámetros de conexión. Incluye woocommerce_url, consumer_key y consumer_secret en body.'
+        'Faltan parámetros de conexión. Incluye woocommerce_url, consumer_key y consumer_secret en query.'
     });
   }
 

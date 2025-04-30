@@ -5,12 +5,7 @@ const {
   updateOrder
 } = require('../utils/editar-woocommerce');
 
-// DELETE /api/eliminar-item?order_id=XXX&line_index=Y
-// Body JSON: {
-//   woocommerce_url,
-//   consumer_key,
-//   consumer_secret
-// }
+// DELETE /api/eliminar-item?order_id=XXX&line_index=Y&woocommerce_url=...&consumer_key=...&consumer_secret=...
 router.delete('/eliminar-item', async (req, res) => {
   // 1) Validar cabecera x-zendesk-secret
   const incomingSecret = req.get('x-zendesk-secret');
@@ -18,13 +13,14 @@ router.delete('/eliminar-item', async (req, res) => {
     return res.status(401).json({ error: 'Unauthorized: x-zendesk-secret inválido' });
   }
 
-  // 2) Leer parámetros de query y body
-  const { order_id, line_index } = req.query;
+  // 2) Leer parámetros dinámicos de req.query
   const {
+    order_id,
+    line_index,
     woocommerce_url,
     consumer_key,
     consumer_secret
-  } = req.body;
+  } = req.query;
 
   // 3) Validaciones básicas
   if (!order_id || line_index == null) {
@@ -35,7 +31,7 @@ router.delete('/eliminar-item', async (req, res) => {
   if (!woocommerce_url || !consumer_key || !consumer_secret) {
     return res.status(400).json({
       error:
-        'Faltan parámetros de conexión. Incluye woocommerce_url, consumer_key y consumer_secret en body.'
+        'Faltan parámetros de conexión. Incluye woocommerce_url, consumer_key y consumer_secret en query.'
     });
   }
 
@@ -78,4 +74,4 @@ router.delete('/eliminar-item', async (req, res) => {
   }
 });
 
-module.exports = router
+module.exports = router;

@@ -2,12 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { fetchOrders } = require('../utils/editar-woocommerce');
 
-// GET /api/get-ciudades
-// Body JSON: {
-//   woocommerce_url,
-//   consumer_key,
-//   consumer_secret
-// }
+// GET /api/get-ciudades?woocommerce_url=...&consumer_key=...&consumer_secret=...
 router.get('/get-ciudades', async (req, res) => {
   // 1) Validar cabecera x-zendesk-secret
   const incomingSecret = req.get('x-zendesk-secret');
@@ -15,18 +10,18 @@ router.get('/get-ciudades', async (req, res) => {
     return res.status(401).json({ error: 'Unauthorized: x-zendesk-secret inválido' });
   }
 
-  // 2) Leer parámetros de conexión dinámicos
+  // 2) Leer parámetros de conexión dinámicos de req.query
   const {
     woocommerce_url,
     consumer_key,
     consumer_secret
-  } = req.body;
+  } = req.query;
 
   // 3) Validaciones básicas
   if (!woocommerce_url || !consumer_key || !consumer_secret) {
     return res.status(400).json({
       error:
-        'Faltan parámetros de conexión. Incluye woocommerce_url, consumer_key y consumer_secret en body.'
+        'Faltan parámetros de conexión. Incluye woocommerce_url, consumer_key y consumer_secret en query.'
     });
   }
 

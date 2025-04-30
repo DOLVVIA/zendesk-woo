@@ -2,12 +2,7 @@ const express = require('express');
 const Stripe = require('stripe');
 const router = express.Router();
 
-// GET /api/get-stripe-charges?email=cliente@ejemplo.com
-// Body JSON:
-// {
-//   email,                // (optional) you can send email both in query and body, but we prioritize query
-//   stripe_secret_key     // tu clave secreta de Stripe
-// }
+// GET /api/get-stripe-charges?email=cliente@ejemplo.com&stripe_secret_key=tu_clave_secreta
 router.get('/get-stripe-charges', async (req, res) => {
   // 1) Validar cabecera x-zendesk-secret
   const incomingSecret = req.get('x-zendesk-secret');
@@ -15,17 +10,16 @@ router.get('/get-stripe-charges', async (req, res) => {
     return res.status(401).json({ error: 'Unauthorized: x-zendesk-secret inválido' });
   }
 
-  // 2) Leer parámetros
-  const email = req.query.email || req.body.email;
-  const { stripe_secret_key } = req.body;
+  // 2) Leer parámetros dinámicos de req.query
+  const { email, stripe_secret_key } = req.query;
 
   // 3) Validaciones básicas
   if (!email) {
-    return res.status(400).json({ error: 'Falta el parámetro email en query o body.' });
+    return res.status(400).json({ error: 'Falta el parámetro email en query.' });
   }
   if (!stripe_secret_key) {
     return res.status(400).json({
-      error: 'Falta stripe_secret_key en body para autenticar con Stripe.'
+      error: 'Falta stripe_secret_key en query para autenticar con Stripe.'
     });
   }
 

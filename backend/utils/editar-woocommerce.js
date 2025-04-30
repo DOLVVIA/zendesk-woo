@@ -45,7 +45,7 @@ async function getPedidosPorEmail({ woocommerce_url, consumer_key, consumer_secr
 
   try {
     const pedidosRes = await api.get('orders', {
-      email,
+      search: email,
       per_page: 100
     });
     return pedidosRes.data;

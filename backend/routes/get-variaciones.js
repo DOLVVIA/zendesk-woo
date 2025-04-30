@@ -2,12 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { fetchProductVariations } = require('../utils/editar-woocommerce');
 
-// GET /api/get-variaciones?product_id=123
-// Body JSON: {
-//   woocommerce_url,
-//   consumer_key,
-//   consumer_secret
-// }
+// GET /api/get-variaciones?product_id=123&woocommerce_url=...&consumer_key=...&consumer_secret=...
 router.get('/get-variaciones', async (req, res) => {
   // 1) Validar cabecera x-zendesk-secret
   const incomingSecret = req.get('x-zendesk-secret');
@@ -17,13 +12,13 @@ router.get('/get-variaciones', async (req, res) => {
       .json({ error: 'Unauthorized: x-zendesk-secret inválido' });
   }
 
-  // 2) Leer parámetros de query y body
-  const { product_id } = req.query;
+  // 2) Leer parámetros dinámicos de req.query
   const {
+    product_id,
     woocommerce_url,
     consumer_key,
     consumer_secret
-  } = req.body;
+  } = req.query;
 
   // 3) Validaciones básicas
   if (!product_id) {
@@ -34,7 +29,7 @@ router.get('/get-variaciones', async (req, res) => {
   if (!woocommerce_url || !consumer_key || !consumer_secret) {
     return res.status(400).json({
       error:
-        'Faltan parámetros de conexión. Incluye woocommerce_url, consumer_key y consumer_secret en body.'
+        'Faltan parámetros de conexión. Incluye woocommerce_url, consumer_key y consumer_secret en query.'
     });
   }
 

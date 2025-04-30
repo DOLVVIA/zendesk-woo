@@ -5,13 +5,7 @@ const {
   fetchOrderById
 } = require('../utils/editar-woocommerce');
 
-// PUT /api/cambiar-estado?order_id=123
-// Body JSON: {
-//   status,
-//   woocommerce_url,
-//   consumer_key,
-//   consumer_secret
-// }
+// PUT /api/cambiar-estado?order_id=123&status=...&woocommerce_url=...&consumer_key=...&consumer_secret=...
 router.put('/cambiar-estado', async (req, res) => {
   // 1) Validar cabecera x-zendesk-secret
   const incomingSecret = req.get('x-zendesk-secret');
@@ -19,26 +13,26 @@ router.put('/cambiar-estado', async (req, res) => {
     return res.status(401).json({ error: 'Unauthorized: x-zendesk-secret inválido' });
   }
 
-  // 2) Leer parámetros dinámicos
-  const { order_id } = req.query;
+  // 2) Leer parámetros dinámicos de req.query
   const {
+    order_id,
     status,
     woocommerce_url,
     consumer_key,
     consumer_secret
-  } = req.body;
+  } = req.query;
 
   // 3) Validar que tengamos todo lo necesario
   if (!order_id) {
     return res.status(400).json({ error: 'Falta order_id en query.' });
   }
   if (!status) {
-    return res.status(400).json({ error: 'Falta status en body.' });
+    return res.status(400).json({ error: 'Falta status en query.' });
   }
   if (!woocommerce_url || !consumer_key || !consumer_secret) {
     return res.status(400).json({
       error:
-        'Faltan parámetros de conexión. Incluye woocommerce_url, consumer_key y consumer_secret en body.'
+        'Faltan parámetros de conexión. Incluye woocommerce_url, consumer_key y consumer_secret en query.'
     });
   }
 
@@ -50,7 +44,7 @@ router.put('/cambiar-estado', async (req, res) => {
       status
     );
 
-    // 5) (Opcional) Recuperar pedido actualizado para devolverlo
+    // 5) Recuperar pedido actualizado para devolverlo
     const updatedOrder = await fetchOrderById(
       { woocommerce_url, consumer_key, consumer_secret },
       order_id

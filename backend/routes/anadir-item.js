@@ -21,7 +21,7 @@ router.post('/anadir-item', async (req, res) => {
     return res.status(401).json({ error: 'Unauthorized: x-zendesk-secret inválido' });
   }
 
-  // 2) Leer parámetros dinámicos de req.body y req.query
+  // 2) Leer parámetros dinámicos de req.query y req.body
   const { order_id } = req.query;
   const {
     product_id,
