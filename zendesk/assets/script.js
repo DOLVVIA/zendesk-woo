@@ -3,6 +3,7 @@ const client = ZAFClient.init();
 
 client.on('app.registered', async () => {
   const { settings: SETTINGS } = await client.metadata();
+  console.log("CONFIG:", SETTINGS);
   const API_BASE = 'https://zendesk-woo.onrender.com/api';
 
   function getHeaders() {
