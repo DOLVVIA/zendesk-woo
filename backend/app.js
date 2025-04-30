@@ -7,7 +7,7 @@ const path = require('path');
 
 // Importación de rutas
 const ordersRoutes = require('./routes/orders');
-const editarDireccionRoutes  = require('./routes/editar-direccion');
+const editarRutaRoutes = require('./routes/editar-ruta');
 const getVariacionesRoutes   = require('./routes/get-variaciones');
 const editarItemRoutes       = require('./routes/editar-item');
 const cambiarEstadoRoutes    = require('./routes/cambiar-estado');
@@ -30,7 +30,7 @@ app.use(express.json());
 
 // Rutas de API
 app.use('/api', require('./routes/orders'));   // GET  /api/buscar-pedidos
-app.use('/api', editarDireccionRoutes);  // PUT  /api/editar-direccion
+app.use('/api', editarRutaRoutes);  // PUT  /api/editar-direccion
 app.use('/api', getVariacionesRoutes);   // GET  /api/get-variaciones
 app.use('/api', editarItemRoutes);       // PUT  /api/editar-item
 app.use('/api', cambiarEstadoRoutes);    // PUT  /api/cambiar-estado
