@@ -381,17 +381,21 @@ client.on('app.registered', async () => {
         btnAdd.dataset.orderId = pedido.id;
         btnAdd.innerText = 'Añadir artículo';
         panel.appendChild(btnAdd);
+
+        // --- Botones de estado y dirección ---
         const btnStatus = document.createElement('button');
         btnStatus.className = 'btn-change-status';
         btnStatus.dataset.orderId = pedido.id;
         btnStatus.dataset.status = pedido.status;
         btnStatus.innerText = 'Cambiar estado';
         panel.appendChild(btnStatus);
+
         const btnEditAddr = document.createElement('button');
         btnEditAddr.className = 'btn-edit-address';
         btnEditAddr.dataset.orderId = pedido.id;
         btnEditAddr.innerText = 'Editar Dirección';
         panel.appendChild(btnEditAddr);
+
         const formAddr = document.createElement('form');
         formAddr.className = 'form-address';
         formAddr.dataset.orderId = pedido.id;
@@ -426,19 +430,22 @@ client.on('app.registered', async () => {
           <label>Ciudad envío:
             <select name="shipping_city">
               ${[pedido.shipping?.city||'',...citiesList.filter(c=>c!==pedido.shipping?.city)].filter(Boolean).map(c=>`<option value="${c}" ${c===pedido.shipping?.city?'selected':''}>${c}</option>`).join('')}
-            ></select>
+            </select>
           </label>
           <label>Código postal envío:<input name="shipping_postcode" type="text" value="${pedido.shipping?.postcode||''}"></label>
           <label>País envío:<input name="shipping_country" type="text" value="${pedido.shipping?.country||''}"></label>
           <button type="button" class="btn-save-address">Guardar Dirección</button>
         `;
         panel.appendChild(formAddr);
+        // ------------------------------------
+
         const stripeSection = document.createElement('div');
         stripeSection.className = 'stripe-section';
         stripeSection.innerHTML = '<h4>Cargos Stripe</h4>';
         panel.appendChild(stripeSection);
         const charges = await loadStripeCharges(b.email);
         renderStripeCharges(charges, stripeSection, panel);
+
         const captureId =
           pedido.transaction_id ||
           (pedido.meta_data?.find(m => m.key === 'transaction_id')?.value);
@@ -452,8 +459,10 @@ client.on('app.registered', async () => {
         } else {
           paypalSection.innerHTML += '<p>No hay transacción PayPal para este pedido.</p>';
         }
+
         resultados.appendChild(acc);
         resultados.appendChild(panel);
+
         acc.addEventListener('click', () => {
           const isOpen = panel.style.display === 'block';
           panel.style.display = isOpen ? 'none' : 'block';
@@ -470,10 +479,76 @@ client.on('app.registered', async () => {
     }
   }
 
+  // --- Aquí van las 5 líneas de tu listener global ---
   document.addEventListener('click', async e => {
-    // Edit, delete, add items; change status; edit/save address logic unchanged...
-    // (listeners remain identical to above, but GET calls use query strings as above)
+    // 1) Cambiar estado
+    if (e.target.matches('.btn-change-status')) {
+      const orderId = e.target.dataset.orderId;
+      const newStatus = prompt('Nuevo estado:', e.target.dataset.status);
+      if (!newStatus) return;
+      const { woocommerce_url, consumer_key, consumer_secret } = getWooConfig();
+      const url = `${API_BASE}/cambiar-estado`
+        + `?order_id=${orderId}`
+        + `&status=${encodeURIComponent(newStatus)}`
+        + `&woocommerce_url=${encodeURIComponent(woocommerce_url)}`
+        + `&consumer_key=${encodeURIComponent(consumer_key)}`
+        + `&consumer_secret=${encodeURIComponent(consumer_secret)}`;
+      const res = await fetch(url, { method: 'PUT', headers: getHeaders() });
+      if (res.ok) {
+        showMessage(e.target.parentNode, 'Estado actualizado');
+        await loadPedidos();
+      } else {
+        const err = await res.json();
+        showMessage(e.target.parentNode, `Error: ${err.error}`, 'error');
+      }
+    }
+    // 2) Mostrar/ocultar formulario de dirección
+    if (e.target.matches('.btn-edit-address')) {
+      const form = e.target.parentNode.querySelector('.form-address');
+      form.style.display = form.style.display === 'none' ? 'block' : 'none';
+    }
+    // 3) Guardar dirección
+    if (e.target.matches('.btn-save-address')) {
+      const form = e.target.closest('.form-address');
+      const orderId = form.dataset.orderId;
+      const billing = {
+        first_name: form.first_name.value,
+        last_name: form.last_name.value,
+        phone: form.phone.value,
+        address_1: form.address_1.value,
+        address_2: form.address_2.value,
+        state: form.state.value,
+        city: form.city.value,
+        postcode: form.postcode.value,
+        country: form.country.value
+      };
+      const shipping = {
+        address_1: form.shipping_address_1.value,
+        address_2: form.shipping_address_2.value,
+        state: form.shipping_state.value,
+        city: form.shipping_city.value,
+        postcode: form.shipping_postcode.value,
+        country: form.shipping_country.value
+      };
+      const { woocommerce_url, consumer_key, consumer_secret } = getWooConfig();
+      const url = `${API_BASE}/editar-direccion`
+        + `?order_id=${orderId}`
+        + `&billing=${encodeURIComponent(JSON.stringify(billing))}`
+        + `&shipping=${encodeURIComponent(JSON.stringify(shipping))}`
+        + `&woocommerce_url=${encodeURIComponent(woocommerce_url)}`
+        + `&consumer_key=${encodeURIComponent(consumer_key)}`
+        + `&consumer_secret=${encodeURIComponent(consumer_secret)}`;
+      const res = await fetch(url, { method: 'PUT', headers: getHeaders() });
+      if (res.ok) {
+        showMessage(form.parentNode, 'Dirección actualizada');
+        await loadPedidos();
+      } else {
+        const err = await res.json();
+        showMessage(form.parentNode, `Error: ${err.error}`, 'error');
+      }
+    }
   });
+  // -----------------------------------------------
 
   // Initialize
   await loadOrderStatuses();
