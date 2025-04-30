@@ -33,4 +33,29 @@ async function editarDireccion({ woocommerce_url, consumer_key, consumer_secret 
   }
 }
 
-module.exports = { editarDireccion };
+/**
+ * Obtiene todos los pedidos asociados a un email.
+ *
+ * @param {Object} config
+ * @param {string} email
+ * @returns {Promise<Array>} lista de pedidos
+ */
+async function getPedidosPorEmail({ woocommerce_url, consumer_key, consumer_secret }, email) {
+  const api = createApi({ woocommerce_url, consumer_key, consumer_secret });
+
+  try {
+    const pedidosRes = await api.get('orders', {
+      email,
+      per_page: 100
+    });
+    return pedidosRes.data;
+  } catch (err) {
+    console.error('Error al obtener pedidos:', err.response?.data || err.message);
+    throw new Error('No se pudieron obtener los pedidos del cliente.');
+  }
+}
+
+module.exports = {
+  editarDireccion,
+  getPedidosPorEmail
+};
