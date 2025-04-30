@@ -1,14 +1,18 @@
+// backend/routes/orders.js
+
 const express = require('express');
 const router = express.Router();
-const { getPedidosPorEmail } = require('../utils/editar-woocommerce');
+const { obtenerPedidosPorEmail } = require('../utils/woocommerce');
 
 // GET /api/buscar-pedidos?email=cliente@ejemplo.com&woocommerce_url=...&consumer_key=...&consumer_secret=...
 router.get('/', async (req, res) => {
+  // Validar cabecera Zendesk
   const incomingSecret = req.get('x-zendesk-secret');
   if (!incomingSecret || incomingSecret !== process.env.ZENDESK_SHARED_SECRET) {
     return res.status(401).json({ error: 'Unauthorized: x-zendesk-secret inválido' });
   }
 
+  // Parámetros
   const {
     email,
     woocommerce_url,
@@ -26,7 +30,8 @@ router.get('/', async (req, res) => {
   }
 
   try {
-    const pedidos = await getPedidosPorEmail(
+    // Llamada al util que obtiene pedidos por email
+    const pedidos = await obtenerPedidosPorEmail(
       { woocommerce_url, consumer_key, consumer_secret },
       email
     );
