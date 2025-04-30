@@ -1,3 +1,5 @@
+// backend/utils/woocommerce.js
+
 const WooCommerceRestApi = require('@woocommerce/woocommerce-rest-api').default;
 const https = require('https');
 
