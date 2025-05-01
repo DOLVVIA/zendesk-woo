@@ -1,10 +1,12 @@
 // backend/routes/orders.js
 
 const express = require('express');
-const router = express.Router();
+const router  = express.Router();
 const { obtenerPedidosPorEmail } = require('../utils/woocommerce');
 
-// GET /api/buscar-pedidos?email=cliente@ejemplo.com&woocommerce_url=...&consumer_key=...&consumer_secret=...
+/**
+ * GET /api/buscar-pedidos?email=…&woocommerce_url=…&consumer_key=…&consumer_secret=…
+ */
 router.get('/', async (req, res) => {
   // 1) Validar cabecera Zendesk
   const incomingSecret = req.get('x-zendesk-secret');
@@ -13,13 +15,7 @@ router.get('/', async (req, res) => {
   }
 
   // 2) Parámetros obligatorios
-  const {
-    email,
-    woocommerce_url,
-    consumer_key,
-    consumer_secret
-  } = req.query;
-
+  const { email, woocommerce_url, consumer_key, consumer_secret } = req.query;
   if (!email) {
     return res.status(400).json({ error: 'El parámetro email es obligatorio en query.' });
   }
@@ -30,28 +26,25 @@ router.get('/', async (req, res) => {
   }
 
   try {
-    // 3) Llamada al util que obtiene pedidos de WooCommerce por email
+    // 3) Obtener pedidos de WooCommerce
     let pedidos = await obtenerPedidosPorEmail(
       { woocommerce_url, consumer_key, consumer_secret },
       email
     );
 
-    // 4) En cada pedido, extraer transaction_id o _transaction_id de meta_data
+    // 4) Extraer PayPal Order ID y Capture ID de meta_data
     pedidos = pedidos.map(pedido => {
-      let txId = pedido.transaction_id || null;
-      if (!txId && Array.isArray(pedido.meta_data)) {
-        const meta = pedido.meta_data.find(m =>
-          m.key === 'transaction_id' || m.key === '_transaction_id'
-        );
-        txId = meta ? meta.value : null;
-      }
+      const meta = Array.isArray(pedido.meta_data) ? pedido.meta_data : [];
+      const orderMeta   = meta.find(m => m.key === '_ppcp_paypal_order_id');
+      const captureMeta = meta.find(m => m.key === '_ppcp_paypal_capture_id');
       return {
         ...pedido,
-        paypal_tx_id: txId
+        paypal_order_id:   orderMeta   ? orderMeta.value   : null,
+        paypal_capture_id: captureMeta ? captureMeta.value : null
       };
     });
 
-    // 5) Devolver email y array de pedidos con paypal_tx_id
+    // 5) Devolver email y array de pedidos con ambos IDs
     res.json({ email, pedidos });
   } catch (err) {
     console.error('Error al obtener pedidos por email:', err.response?.data || err.message);

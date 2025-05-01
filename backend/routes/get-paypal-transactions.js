@@ -1,4 +1,4 @@
-// backend/routes/paypal-transaction.js
+// backend/routes/get-paypal-transactions.js
 
 const express  = require('express');
 const checkout = require('@paypal/checkout-server-sdk');
@@ -12,8 +12,8 @@ const environment = new checkout.core.LiveEnvironment(
 const client = new checkout.core.PayPalHttpClient(environment);
 
 /**
- * GET /api/get-paypal-transaction?paypalOrderId=<ID>
- * Devuelve un array con la captura extraída del Order de PayPal.
+ * GET /api/get-paypal-transactions?paypalCaptureId=<CAPTURE_ID>
+ * Devuelve un array con la captura obtenida directamente a partir del Capture ID.
  */
 router.get('/', async (req, res) => {
   // 0) Validar cabecera Zendesk
@@ -22,28 +22,21 @@ router.get('/', async (req, res) => {
     return res.status(401).json({ error: 'Unauthorized: x-zendesk-secret inválido' });
   }
 
-  // 1) Parámetro obligatorio
-  const { paypalOrderId } = req.query;
-  if (!paypalOrderId) {
-    return res.status(400).json({ error: 'Falta parámetro paypalOrderId.' });
+  // 1) Parámetro obligatorio: Capture ID
+  const { paypalCaptureId } = req.query;
+  if (!paypalCaptureId) {
+    return res.status(400).json({ error: 'Falta parámetro paypalCaptureId.' });
   }
 
   try {
-    // 2) Obtener el Order de PayPal
-    const orderRequest = new checkout.orders.OrdersGetRequest(paypalOrderId);
-    const orderResp    = await client.execute(orderRequest);
+    // 2) Obtener captura desde PayPal
+    const captureRequest  = new checkout.payments.CapturesGetRequest(paypalCaptureId);
+    const captureResponse = await client.execute(captureRequest);
 
-    // 3) Extraer la primera captura de purchase_units
-    const pu      = orderResp.result.purchase_units?.[0];
-    const capture = pu?.payments?.captures?.[0];
-    if (!capture) {
-      return res.status(404).json({ error: 'No se encontró ninguna captura.' });
-    }
-
-    // 4) Devolver la captura dentro de un array
-    return res.json([capture]);
+    // 3) Devolver la captura dentro de un array
+    return res.json([ captureResponse.result ]);
   } catch (err) {
-    console.error('Error al obtener PayPal transaction:', err);
+    console.error('Error al obtener captura PayPal:', err);
     return res.status(500).json({ error: err.message });
   }
 });

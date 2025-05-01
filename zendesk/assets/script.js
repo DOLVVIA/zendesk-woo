@@ -285,16 +285,16 @@ paypalSection.className = 'paypal-section';
 paypalSection.innerHTML = '<h4>Transacción PayPal</h4>';
 panel.appendChild(paypalSection);
 
-const orderId = pedido.paypal_order_id;
-console.log('🔍 PayPal Order ID para pedido', pedido.id, ':', orderId);
+const captureId = pedido.paypal_capture_id;
+console.log('🔍 PayPal Capture ID para pedido', pedido.id, ':', captureId);
 
-if (!orderId) {
-  paypalSection.innerHTML += '<p>No hay Order ID de PayPal.</p>';
+if (!captureId) {
+  paypalSection.innerHTML += '<p>No hay Capture ID de PayPal.</p>';
 } else {
   try {
-    console.log(`🔗 Fetching PayPal data for Order ID ${orderId}`);
+    console.log(`🔗 Fetching PayPal data for Capture ID ${captureId}`);
     const resp = await fetch(
-      `${API_BASE}/get-paypal-transaction?paypalOrderId=${orderId}`,
+      `${API_BASE}/get-paypal-transactions?paypalCaptureId=${captureId}`,
       { headers: getHeaders() }
     );
     console.log('📥 Respuesta PayPal (status):', resp.status);
