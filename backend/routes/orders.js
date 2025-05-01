@@ -45,18 +45,19 @@ router.get('/', async (req, res) => {
         getMeta('paypal_transaction_id') ||
         getMeta('_paypal_transaction_id');
 
-      return {
-        id: pedido.id,
-        status: pedido.status,
-        total: pedido.total,
-        email: pedido.billing?.email || null,
-        payment_method: pedido.payment_method,
-        paypal_order_id,
-        paypal_capture_id,
-        billing: pedido.billing || {},
-        shipping: pedido.shipping || {},
-        line_items: pedido.line_items || []
-      };
+        return {
+          id: pedido.id,
+          status: pedido.status,
+          total: pedido.total,
+          payment_method: pedido.payment_method,
+          paypal_order_id,
+          paypal_capture_id,
+          billing: pedido.billing || {},
+          shipping: pedido.shipping || {},
+          line_items: pedido.line_items || [],
+          meta_data: pedido.meta_data || []
+        };
+        
     });
 
     // 5) Enviar resultado
