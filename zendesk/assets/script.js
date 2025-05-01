@@ -396,7 +396,7 @@ renderStripeCharges(charges, stripeSection, panel);
 
 // ——— Sección PayPal ———
 // Extraemos el captureId desde meta_data usando el key correcto:
-const captureMeta = pedido.meta_data?.find(m => m.key === '_ppcp_paypal_order_id');
+const captureMeta = pedido.meta_data?.find(m => m.key === 'transaction_id');
 const captureId   = captureMeta?.value;
 
 const paypalSection = document.createElement('div');

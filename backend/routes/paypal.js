@@ -1,6 +1,6 @@
-const express = require('express');
+const express  = require('express');
 const checkout = require('@paypal/checkout-server-sdk');
-const router = express.Router();
+const router   = express.Router();
 
 // GET /api/get-paypal-transaction?captureId=XXX&paypal_client_id=...&paypal_secret=...&paypal_env=...
 router.get('/', async (req, res) => {
@@ -10,7 +10,7 @@ router.get('/', async (req, res) => {
     return res.status(401).json({ error: 'Unauthorized: x-zendesk-secret inválido' });
   }
 
-  // 2) Leer parámetros dinámicos de req.query
+  // 2) Leer parámetros dinámicos de req.query (proporcionados desde Settings de Zendesk)
   const {
     captureId,
     paypal_client_id,
@@ -29,7 +29,7 @@ router.get('/', async (req, res) => {
   }
 
   try {
-    // 4) Inicializar PayPal SDK dinámicamente según entorno
+    // 4) Inicializar PayPal SDK dinámicamente según entorno proporcionado
     const { core: paypalCore, payments } = checkout;
     let environment;
     if (paypal_env === 'live') {
@@ -43,7 +43,7 @@ router.get('/', async (req, res) => {
     const request  = new payments.CapturesGetRequest(captureId);
     const response = await client.execute(request);
 
-    // 6) Devolver resultado (array para mantener compatibilidad)
+    // 6) Devolver resultado en array para compatibilidad con el frontend
     res.json([ response.result ]);
   } catch (err) {
     console.error('Error al obtener captura PayPal:', err);
