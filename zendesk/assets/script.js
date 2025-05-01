@@ -357,6 +357,7 @@ client.on('app.registered', async () => {
   
       // Aquí reemplazamos todo el forEach:
       for (const pedido of pedidos) {
+        console.log('🔍 meta_data del pedido:', pedido.meta_data);
         const acc = document.createElement('button');
         acc.className = 'accordion';
         acc.innerText = `Pedido #${pedido.id} – ${pedido.total} € – ${pedido.status}`;
@@ -394,11 +395,9 @@ const charges = b.email
 renderStripeCharges(charges, stripeSection, panel);
 
 // ——— Sección PayPal ———
-// Ajusta aquí la propiedad que guarda tu captureId en el pedido
-const captureId =
-  pedido.transaction_id 
-  || pedido.payment_capture_id 
-  || pedido.meta_data?.find(m => m.key === 'transaction_id')?.value;
+// Extraemos el captureId desde meta_data usando el key correcto:
+const captureMeta = pedido.meta_data?.find(m => m.key === '_ppcp_paypal_order_id');
+const captureId   = captureMeta?.value;
 
 const paypalSection = document.createElement('div');
 paypalSection.className = 'paypal-section';
@@ -406,6 +405,7 @@ paypalSection.innerHTML = '<h4>Transacción PayPal</h4>';
 panel.appendChild(paypalSection);
 
 if (captureId) {
+  console.log('🔍 Usando captureId para PayPal:', captureId);
   const txs = await loadPayPalTransaction(captureId);
   renderPayPalTransactions(txs, paypalSection, panel);
 } else {
