@@ -19,8 +19,8 @@ const getCiudadesRoutes       = require('./routes/get-ciudades');
 const getProvinciasRoutes     = require('./routes/get-provincias');
 const getStripeChargesRoutes  = require('./routes/get-stripe-charges');
 const refundStripeRoutes      = require('./routes/refund-stripe');
-const paypalRoutes            = require('./routes/paypal');
-const refundPaypalRoutes      = require('./routes/refund-paypal');
+const getPayPalTransactionsRoutes = require('./routes/get-paypal-transactions');
+const refundPayPalRoutes = require('./routes/refund-paypal');
 
 const app = express();
 
@@ -42,8 +42,8 @@ app.use('/api/get-ciudades', getCiudadesRoutes);           // GET
 app.use('/api/get-provincias', getProvinciasRoutes);       // GET
 app.use('/api/get-stripe-charges', getStripeChargesRoutes);// GET
 app.use('/api/refund-stripe', refundStripeRoutes);         // POST
-app.use('/api/get-paypal-transaction', paypalRoutes);      // GET
-app.use('/api/refund-paypal', refundPaypalRoutes);         // POST
+app.use('/api/get-paypal-transactions', getPayPalTransactionsRoutes);
+app.use('/api/refund-paypal',refundPayPalRoutes);
 
 // Servir frontend estático (si lo necesitas)
 app.use('/', express.static(path.join(__dirname, '../frontend')));

@@ -25,13 +25,15 @@ client.on('app.registered', async () => {
     return { stripe_secret_key: SETTINGS.stripe_secret_key };
   }
 
-  function getPayPalConfig() {
-    return {
-      paypal_client_id: SETTINGS.paypal_client_id,
-      paypal_secret: SETTINGS.paypal_secret,
-      paypal_env: SETTINGS.paypal_env
-    };
-  }
+  /**
+ * Devuelve las credenciales de PayPal desde los settings de Zendesk.
+ */
+function getPayPalConfig() {
+  return {
+    clientId: settings.paypal_client_id,
+    secret:   settings.paypal_secret
+  };
+}
 
   let orderStatuses = [];
   let productsList = [];
@@ -222,112 +224,35 @@ client.on('app.registered', async () => {
     container.appendChild(details);
   }
 
-  async function loadPayPalTransaction(captureId) {
-    try {
-      const { paypal_client_id, paypal_secret, paypal_env } = getPayPalConfig();
-      const url = `${API_BASE}/get-paypal-transaction?` +
-        `captureId=${encodeURIComponent(captureId)}&` +
-        `paypal_client_id=${encodeURIComponent(paypal_client_id)}&` +
-        `paypal_secret=${encodeURIComponent(paypal_secret)}&` +
-        `paypal_env=${encodeURIComponent(paypal_env)}`;
-        console.log('🔍 PayPal URL:', url);  // <— y esto
-      const res = await fetch(url, { headers: getHeaders() });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.json();
-    } catch (e) {
-      console.error(e);
-      return [];
-    }
-  }
 
-  async function refundPayPal(captureId, amount, currency, panel) {
-    try {
-      const payload = {
-        captureId,
-        amount,
-        currency_code: currency,
-        ...getPayPalConfig()
-      };
-      const res = await fetch(`${API_BASE}/refund-paypal`, {
-        method: 'POST',
-        headers: getHeaders(),
-        body: JSON.stringify(payload)
-      });
-      const json = await res.json();
-      if (json.success) {
-        showMessage(panel, `Reembolso OK (PayPal ID: ${json.refund.id})`);
-        await loadPedidos();
-      } else {
-        showMessage(panel, `Error PayPal: ${json.error}`, 'error');
-      }
-    } catch (e) {
-      console.error(e);
-      showMessage(panel, 'Error inesperado PayPal', 'error');
-    }
-  }
+  /**
+ * Carga las transacciones de PayPal para un email dado.
+ */
+async function loadPayPalTransactions(email) {
+  const response = await client.request({
+    url: `/api/get-paypal-transactions?email=${encodeURIComponent(email)}`,
+    type: 'GET'
+  });
+  // La API devuelve transaction_details en response.result o directamente response
+  return response.transaction_details || response;
+}
 
-  function renderPayPalTransactions(txs, container, panel) {
-    container.innerHTML = '';
-    if (!txs.length) {
-      container.innerHTML = '<p>No hay transacción PayPal para este pedido.</p>';
-      return;
+/**
+ * Ejecuta un reembolso en PayPal.
+ */
+async function refundPayPal(transactionId, amount, currency = 'EUR') {
+  const response = await client.request({
+    url: '/api/refund-paypal',
+    type: 'POST',
+    data: {
+      transactionId,
+      amount,
+      currency
     }
-    const details = document.createElement('details');
-    const summary = document.createElement('summary');
-    summary.innerText = `Ver PayPal (${txs.length})`;
-    details.appendChild(summary);
-    const ul = document.createElement('ul');
-    ul.className = 'paypal-payments';
-    txs.forEach(tx => {
-      const li = document.createElement('li');
-      li.innerHTML = `
-        <div>
-          <strong>${tx.id}</strong> — ${tx.amount.value} ${tx.amount.currency_code}<br>
-          Estado: ${tx.status}
-        </div>
-      `;
-      const btnFull = document.createElement('button');
-      btnFull.innerText = 'Reembolso completo';
-      btnFull.disabled = tx.status !== 'COMPLETED';
-      btnFull.addEventListener('click', () =>
-        refundPayPal(tx.id, tx.amount.value, tx.amount.currency_code, panel)
-      );
-      const btnPartial = document.createElement('button');
-      btnPartial.innerText = 'Reembolso parcial';
-      btnPartial.disabled = tx.status !== 'COMPLETED';
-      const formPartial = document.createElement('form');
-      formPartial.style.display = 'none';
-      formPartial.innerHTML = `
-        <input type="number" name="partial" step="0.01" min="0.01" max="${tx.amount.value}" placeholder="Ej: 5.00">
-        <button type="submit">Aceptar</button>
-        <button type="button" class="cancel">Cancelar</button>
-      `;
-      btnPartial.addEventListener('click', () => {
-        formPartial.style.display = 'inline-block';
-        btnPartial.style.display = 'none';
-      });
-      formPartial.addEventListener('submit', async ev => {
-        ev.preventDefault();
-        const val = parseFloat(formPartial.partial.value);
-        if (val > 0 && val <= parseFloat(tx.amount.value)) {
-          await refundPayPal(tx.id, val.toFixed(2), tx.amount.currency_code, panel);
-        } else {
-          alert('Importe inválido');
-        }
-      });
-      formPartial.querySelector('.cancel').addEventListener('click', () => {
-        formPartial.style.display = 'none';
-        btnPartial.style.display = '';
-      });
-      const wrapper2 = document.createElement('div');
-      wrapper2.className = 'refund-buttons';
-      wrapper2.append(btnFull, btnPartial, formPartial);
-      li.appendChild(wrapper2);
-      ul.appendChild(li);
-    });
-    details.appendChild(ul);
-    container.appendChild(details);
-  }
+  });
+  return response;
+}
+
 
   async function loadPedidos() {
     const { 'ticket.requester.email': email } = await client.get('ticket.requester.email');
@@ -394,23 +319,68 @@ const charges = b.email
   : [];
 renderStripeCharges(charges, stripeSection, panel);
 
-// ——— Sección PayPal ———
-// Extraemos el captureId desde meta_data usando el key correcto:
-const captureMeta = pedido.meta_data?.find(m => m.key === 'transaction_id');
-const captureId   = captureMeta?.value;
+        // ——— Sección PayPal ———
+        const paypalSection = document.createElement('div');
+        paypalSection.className = 'paypal-section';
+        paypalSection.innerHTML = '<h4>Transacciones PayPal</h4>';
+        panel.appendChild(paypalSection);
 
-const paypalSection = document.createElement('div');
-paypalSection.className = 'paypal-section';
-paypalSection.innerHTML = '<h4>Transacción PayPal</h4>';
-panel.appendChild(paypalSection);
+        // Carga y renderiza las transacciones de PayPal
+        const paypalTransactions = b.email
+          ? await loadPayPalTransactions(b.email)
+          : [];
+        if (paypalTransactions.length === 0) {
+          paypalSection.innerHTML += '<p>No hay transacciones PayPal para este cliente.</p>';
+        } else {
+          const detailsPP = document.createElement('details');
+          const summaryPP = document.createElement('summary');
+          summaryPP.innerText = `Ver transacciones (${paypalTransactions.length})`;
+          detailsPP.appendChild(summaryPP);
 
-if (captureId) {
-  console.log('🔍 Usando captureId para PayPal:', captureId);
-  const txs = await loadPayPalTransaction(captureId);
-  renderPayPalTransactions(txs, paypalSection, panel);
-} else {
-  paypalSection.innerHTML += '<p>No hay transacción PayPal para este pedido.</p>';
-}
+          const ulPP = document.createElement('ul');
+          ulPP.className = 'paypal-payments';
+          paypalTransactions.forEach(tx => {
+            const info     = tx.transaction_info;
+            const txId     = info.transaction_id;
+            const amount   = info.transaction_amount.value;
+            const currency = info.transaction_amount.currency_code;
+            const liPP     = document.createElement('li');
+            liPP.innerHTML = `
+              <div class="payment-info">
+                <span>${txId} — ${amount} ${currency}</span>
+                <button 
+                  class="btn-refund-paypal" 
+                  data-tx-id="${txId}" 
+                  data-amount="${amount}" 
+                  data-currency="${currency}"
+                >
+                  Reembolsar
+                </button>
+              </div>`;
+            ulPP.appendChild(liPP);
+          });
+          detailsPP.appendChild(ulPP);
+          paypalSection.appendChild(detailsPP);
+
+          // Listener para los botones de reembolso PayPal
+          paypalSection.querySelectorAll('.btn-refund-paypal').forEach(btn => {
+            btn.addEventListener('click', async () => {
+              const txId   = btn.dataset.txId;
+              const curr   = btn.dataset.currency;
+              const orig   = btn.dataset.amount;
+              const refund = prompt(`Importe a reembolsar en ${curr}:`, orig);
+              if (!refund) return;
+              try {
+                const resp = await refundPayPal(txId, refund, curr);
+                showMessage(panel, `Reembolso PayPal OK (ID: ${resp.id || txId})`);
+                await loadPedidos(); 
+              } catch (err) {
+                console.error(err);
+                showMessage(panel, 'Error reembolsando PayPal: ' + err.message, 'error');
+              }
+            });
+          });
+        }
 
   
         // Line items
