@@ -1,8 +1,10 @@
+// backend/routes/get-paypal-transaction.js
+
 const express  = require('express');
 const checkout = require('@paypal/checkout-server-sdk');
 const router   = express.Router();
 
-// GET /api/get-paypal-transaction?captureId=XXX&paypal_client_id=...&paypal_secret=...&paypal_env=...
+// GET /api/get-paypal-transaction?captureId=XXX&paypal_client_id=...&paypal_secret=...
 router.get('/', async (req, res) => {
   // 1) Validar cabecera x-zendesk-secret
   const incomingSecret = req.get('x-zendesk-secret');
@@ -10,33 +12,26 @@ router.get('/', async (req, res) => {
     return res.status(401).json({ error: 'Unauthorized: x-zendesk-secret inválido' });
   }
 
-  // 2) Leer parámetros dinámicos de req.query (proporcionados desde Settings de Zendesk)
-  const {
-    captureId,
-    paypal_client_id,
-    paypal_secret,
-    paypal_env
-  } = req.query;
+  // 2) Leer parámetros de la query
+  const { captureId, paypal_client_id, paypal_secret } = req.query;
 
   // 3) Validaciones básicas
   if (!captureId) {
     return res.status(400).json({ error: 'Falta el parámetro captureId en query.' });
   }
-  if (!paypal_client_id || !paypal_secret || !paypal_env) {
+  if (!paypal_client_id || !paypal_secret) {
     return res.status(400).json({
-      error: 'Faltan parámetros de configuración de PayPal. Incluye paypal_client_id, paypal_secret y paypal_env en query.'
+      error: 'Faltan parámetros de configuración de PayPal. Incluye paypal_client_id y paypal_secret en query.'
     });
   }
 
   try {
-    // 4) Inicializar PayPal SDK dinámicamente según entorno proporcionado
+    // 4) Inicializar siempre en LiveEnvironment
     const { core: paypalCore, payments } = checkout;
-    let environment;
-    if (paypal_env === 'live') {
-      environment = new paypalCore.LiveEnvironment(paypal_client_id, paypal_secret);
-    } else {
-      environment = new paypalCore.SandboxEnvironment(paypal_client_id, paypal_secret);
-    }
+    const environment = new paypalCore.LiveEnvironment(
+      paypal_client_id,
+      paypal_secret
+    );
     const client = new paypalCore.PayPalHttpClient(environment);
 
     // 5) Ejecutar request para obtener la captura
