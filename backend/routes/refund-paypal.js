@@ -1,16 +1,24 @@
+// backend/routes/refund-paypal.js
+
 const express = require('express');
-const router = express.Router();
-const paypal = require('@paypal/checkout-server-sdk');
-const { authorizeZendesk } = require('../middleware/auth');
+const paypal  = require('@paypal/checkout-server-sdk');
+const router  = express.Router();
 
 function createPayPalClient() {
-  const clientId = process.env.PAYPAL_CLIENT_ID;
+  const clientId     = process.env.PAYPAL_CLIENT_ID;
   const clientSecret = process.env.PAYPAL_SECRET;
-  const environment = new paypal.core.SandboxEnvironment(clientId, clientSecret);
+  const environment  = new paypal.core.SandboxEnvironment(clientId, clientSecret);
   return new paypal.core.PayPalHttpClient(environment);
 }
 
-router.post('/', authorizeZendesk, async (req, res) => {
+router.post('/', async (req, res) => {
+  // 1) Validar cabecera
+  const incomingSecret = req.get('x-zendesk-secret');
+  if (!incomingSecret || incomingSecret !== process.env.ZENDESK_SHARED_SECRET) {
+    return res.status(401).json({ error: 'Unauthorized: x-zendesk-secret inválido' });
+  }
+
+  // 2) Leer body
   const { transactionId, amount, currency } = req.body;
   if (!transactionId || !amount) {
     return res.status(400).json({ error: 'Falta transactionId o amount' });
@@ -18,21 +26,19 @@ router.post('/', authorizeZendesk, async (req, res) => {
 
   try {
     const client = createPayPalClient();
-    const captureId = transactionId; // en PayPal se reembolsa sobre un captureId
-    const request = new paypal.payments.CapturesRefundRequest(captureId);
+    const request = new paypal.payments.CapturesRefundRequest(transactionId);
     request.requestBody({
       amount: {
-        value: amount,
+        value:         amount,
         currency_code: currency || 'EUR'
       }
     });
 
     const response = await client.execute(request);
-    // Devuelve datos del reembolso
-    res.json(response.result);
+    return res.json(response.result);
   } catch (err) {
     console.error('Error reembolsando en PayPal:', err);
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
 
