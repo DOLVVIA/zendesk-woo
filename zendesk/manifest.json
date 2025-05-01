@@ -74,6 +74,15 @@
       "type": "text",
       "required": true,
       "secure": false
+    },
+
+    {
+      "name": "paypal_mode",
+      "type": "text",
+      "required": false,
+      "secure": false,
+      "default": "live"
     }
+
   ]
 }
