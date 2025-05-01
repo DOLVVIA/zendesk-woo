@@ -25,16 +25,6 @@ client.on('app.registered', async () => {
     return { stripe_secret_key: SETTINGS.stripe_secret_key };
   }
 
-  /**
- * Devuelve las credenciales de PayPal desde los settings de Zendesk.
- */
-function getPayPalConfig() {
-  return {
-    clientId: settings.paypal_client_id,
-    secret:   settings.paypal_secret
-  };
-}
-
   let orderStatuses = [];
   let productsList = [];
   let citiesList = [];
@@ -224,36 +214,6 @@ function getPayPalConfig() {
     container.appendChild(details);
   }
 
-
-  /**
- * Carga las transacciones de PayPal para un email dado.
- */
-async function loadPayPalTransactions(email) {
-  const response = await client.request({
-    url: `/api/get-paypal-transactions?email=${encodeURIComponent(email)}`,
-    type: 'GET'
-  });
-  // La API devuelve transaction_details en response.result o directamente response
-  return response.transaction_details || response;
-}
-
-/**
- * Ejecuta un reembolso en PayPal.
- */
-async function refundPayPal(transactionId, amount, currency = 'EUR') {
-  const response = await client.request({
-    url: '/api/refund-paypal',
-    type: 'POST',
-    data: {
-      transactionId,
-      amount,
-      currency
-    }
-  });
-  return response;
-}
-
-
   async function loadPedidos() {
     const { 'ticket.requester.email': email } = await client.get('ticket.requester.email');
     if (!email) return;
@@ -319,68 +279,49 @@ const charges = b.email
   : [];
 renderStripeCharges(charges, stripeSection, panel);
 
-        // ——— Sección PayPal ———
-        const paypalSection = document.createElement('div');
-        paypalSection.className = 'paypal-section';
-        paypalSection.innerHTML = '<h4>Transacciones PayPal</h4>';
-        panel.appendChild(paypalSection);
+// ===== Paso 1: Prueba de fetch a PayPal =====
+console.log('🔍 Fetch PayPal para:', b.email);
+const paypalTransactions = b.email
+  ? await fetch(
+      `${API_BASE}/get-paypal-transactions?email=${encodeURIComponent(b.email)}`,
+      { headers: getHeaders() }
+    ).then(r => r.ok ? r.json() : [])
+  : [];
 
-        // Carga y renderiza las transacciones de PayPal
-        const paypalTransactions = b.email
-          ? await loadPayPalTransactions(b.email)
-          : [];
-        if (paypalTransactions.length === 0) {
-          paypalSection.innerHTML += '<p>No hay transacciones PayPal para este cliente.</p>';
-        } else {
-          const detailsPP = document.createElement('details');
-          const summaryPP = document.createElement('summary');
-          summaryPP.innerText = `Ver transacciones (${paypalTransactions.length})`;
-          detailsPP.appendChild(summaryPP);
+// Muestra en consola lo que devuelve la API de PayPal
+console.log('📦 PayPal Transactions:', paypalTransactions);
 
-          const ulPP = document.createElement('ul');
-          ulPP.className = 'paypal-payments';
-          paypalTransactions.forEach(tx => {
-            const info     = tx.transaction_info;
-            const txId     = info.transaction_id;
-            const amount   = info.transaction_amount.value;
-            const currency = info.transaction_amount.currency_code;
-            const liPP     = document.createElement('li');
-            liPP.innerHTML = `
-              <div class="payment-info">
-                <span>${txId} — ${amount} ${currency}</span>
-                <button 
-                  class="btn-refund-paypal" 
-                  data-tx-id="${txId}" 
-                  data-amount="${amount}" 
-                  data-currency="${currency}"
-                >
-                  Reembolsar
-                </button>
-              </div>`;
-            ulPP.appendChild(liPP);
-          });
-          detailsPP.appendChild(ulPP);
-          paypalSection.appendChild(detailsPP);
+// ===== Paso 2: Renderizado simple =====
+const paypalSection = document.createElement('div');
+paypalSection.className = 'paypal-section';
+paypalSection.innerHTML = '<h4>Transacciones PayPal</h4>';
+panel.appendChild(paypalSection);
 
-          // Listener para los botones de reembolso PayPal
-          paypalSection.querySelectorAll('.btn-refund-paypal').forEach(btn => {
-            btn.addEventListener('click', async () => {
-              const txId   = btn.dataset.txId;
-              const curr   = btn.dataset.currency;
-              const orig   = btn.dataset.amount;
-              const refund = prompt(`Importe a reembolsar en ${curr}:`, orig);
-              if (!refund) return;
-              try {
-                const resp = await refundPayPal(txId, refund, curr);
-                showMessage(panel, `Reembolso PayPal OK (ID: ${resp.id || txId})`);
-                await loadPedidos(); 
-              } catch (err) {
-                console.error(err);
-                showMessage(panel, 'Error reembolsando PayPal: ' + err.message, 'error');
-              }
-            });
-          });
-        }
+if (!paypalTransactions.length) {
+  paypalSection.innerHTML += '<p>No hay transacciones PayPal.</p>';
+} else {
+  const detailsPP = document.createElement('details');
+  const summaryPP = document.createElement('summary');
+  summaryPP.innerText = `Ver transacciones (${paypalTransactions.length})`;
+  detailsPP.appendChild(summaryPP);
+
+  const ulPP = document.createElement('ul');
+  ulPP.className = 'paypal-payments';
+  paypalTransactions.forEach(tx => {
+    const info     = tx.transaction_info;
+    const txId     = info.transaction_id;
+    const amount   = info.transaction_amount.value;
+    const currency = info.transaction_amount.currency_code;
+    const liPP     = document.createElement('li');
+    liPP.innerHTML = `
+      <div class="payment-info">
+        <span>${txId} — ${amount} ${currency}</span>
+      </div>`;
+    ulPP.appendChild(liPP);
+  });
+  detailsPP.appendChild(ulPP);
+  paypalSection.appendChild(detailsPP);
+}
 
   
         // Line items

@@ -12,20 +12,20 @@ function createPayPalClient() {
 }
 
 router.post('/', async (req, res) => {
-  // 1) Validar cabecera
-  const incomingSecret = req.get('x-zendesk-secret');
-  if (!incomingSecret || incomingSecret !== process.env.ZENDESK_SHARED_SECRET) {
+  // 1) VALIDAR x-zendesk-secret
+  const zendeskSecret = req.get('x-zendesk-secret');
+  if (!zendeskSecret || zendeskSecret !== process.env.ZENDESK_SHARED_SECRET) {
     return res.status(401).json({ error: 'Unauthorized: x-zendesk-secret inválido' });
   }
 
-  // 2) Leer body
+  // 2) Parámetros obligatorios
   const { transactionId, amount, currency } = req.body;
   if (!transactionId || !amount) {
     return res.status(400).json({ error: 'Falta transactionId o amount' });
   }
 
   try {
-    const client = createPayPalClient();
+    const client  = createPayPalClient();
     const request = new paypal.payments.CapturesRefundRequest(transactionId);
     request.requestBody({
       amount: {
