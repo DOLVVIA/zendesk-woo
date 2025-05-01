@@ -24,43 +24,13 @@ router.get('/', async (req, res) => {
   }
 
   try {
-    // 3) Obtener pedidos desde WooCommerce
-    let pedidos = await obtenerPedidosPorEmail(
+    // 3) Obtener pedidos desde WooCommerce (completos, sin modificar)
+    const pedidos = await obtenerPedidosPorEmail(
       { woocommerce_url, consumer_key, consumer_secret },
       email
     );
 
-    // 4) Extraer metadatos relevantes y reenviar billing/shipping
-    pedidos = pedidos.map(pedido => {
-      const meta = Array.isArray(pedido.meta_data) ? pedido.meta_data : [];
-
-      const getMeta = key => {
-        const entry = meta.find(m => m.key === key);
-        return entry ? entry.value : null;
-      };
-
-      const paypal_order_id = getMeta('_ppcp_paypal_order_id');
-      const paypal_capture_id =
-        getMeta('_ppcp_paypal_capture_id') ||
-        getMeta('paypal_transaction_id') ||
-        getMeta('_paypal_transaction_id');
-
-        return {
-          id: pedido.id,
-          status: pedido.status,
-          total: pedido.total,
-          payment_method: pedido.payment_method,
-          paypal_order_id,
-          paypal_capture_id,
-          billing: pedido.billing || {},
-          shipping: pedido.shipping || {},
-          line_items: pedido.line_items || [],
-          meta_data: pedido.meta_data || []
-        };
-        
-    });
-
-    // 5) Enviar resultado
+    // 4) Enviar tal cual, con todos los meta_data y campos
     res.json({ email, pedidos });
   } catch (err) {
     console.error('Error al obtener pedidos por email:', err.response?.data || err.message);
