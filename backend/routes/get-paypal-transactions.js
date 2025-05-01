@@ -1,55 +1,49 @@
-// backend/routes/get-paypal-transactions.js
-const express = require('express');
-const paypal  = require('@paypal/checkout-server-sdk');
-const router  = express.Router();
+// backend/routes/paypal-transaction.js
 
-function createPayPalClient() {
-  const clientId     = process.env.PAYPAL_CLIENT_ID;
-  const clientSecret = process.env.PAYPAL_SECRET;
-  const mode         = (process.env.PAYPAL_MODE||'sandbox').toLowerCase();
+const express  = require('express');
+const checkout = require('@paypal/checkout-server-sdk');
+const router   = express.Router();
 
-  let environment;
-  if (mode === 'live') {
-    environment = new paypal.core.LiveEnvironment(clientId, clientSecret);
-  } else {
-    environment = new paypal.core.SandboxEnvironment(clientId, clientSecret);
-  }
+// 1️⃣ Inicializa siempre en Live (forzar "live" mode)
+const environment = new checkout.core.LiveEnvironment(
+  process.env.PAYPAL_CLIENT_ID,
+  process.env.PAYPAL_SECRET
+);
+const client = new checkout.core.PayPalHttpClient(environment);
 
-  return new paypal.core.PayPalHttpClient(environment);
-}
-
-router.get('/', async (req, res) => {
-  // 1) Validación del secreto de Zendesk
+/**
+ * GET /api/get-paypal-transaction?paypalOrderId=<ID>
+ * Devuelve un array con la captura extraída del Order de PayPal.
+ */
+router.get('/get-paypal-transaction', async (req, res) => {
+  // 0) Validar cabecera Zendesk
   const incoming = req.get('x-zendesk-secret');
   if (!incoming || incoming !== process.env.ZENDESK_SHARED_SECRET) {
     return res.status(401).json({ error: 'Unauthorized: x-zendesk-secret inválido' });
   }
 
-  // 2) Parámetro email
-  const { email } = req.query;
-  if (!email) {
-    return res.status(400).json({ error: 'Falta el parámetro email' });
+  // 1) Parámetro obligatorio
+  const { paypalOrderId } = req.query;
+  if (!paypalOrderId) {
+    return res.status(400).json({ error: 'Falta parámetro paypalOrderId.' });
   }
 
   try {
-    const client    = createPayPalClient();
-    const now       = new Date();
-    const startDate = new Date(now.getTime() - 30*24*60*60*1000).toISOString();
-    const endDate   = now.toISOString();
+    // 2) Obtener el Order de PayPal
+    const orderRequest = new checkout.orders.OrdersGetRequest(paypalOrderId);
+    const orderResp    = await client.execute(orderRequest);
 
-    const request = new paypal.reporting.TransactionsSearchRequest();
-    request.queryParams({
-      start_date:              startDate,
-      end_date:                endDate,
-      transaction_payer_email: email,
-      page_size:               20,
-      fields:                  'all'
-    });
+    // 3) Extraer la primera captura de purchase_units
+    const pu      = orderResp.result.purchase_units?.[0];
+    const capture = pu?.payments?.captures?.[0];
+    if (!capture) {
+      return res.status(404).json({ error: 'No se encontró ninguna captura.' });
+    }
 
-    const response = await client.execute(request);
-    return res.json(response.result.transaction_details);
+    // 4) Devolver la captura dentro de un array
+    return res.json([capture]);
   } catch (err) {
-    console.error('⚠️ Error en get-paypal-transactions:', err);
+    console.error('Error al obtener PayPal transaction:', err);
     return res.status(500).json({ error: err.message });
   }
 });

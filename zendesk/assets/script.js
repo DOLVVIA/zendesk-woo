@@ -279,49 +279,74 @@ const charges = b.email
   : [];
 renderStripeCharges(charges, stripeSection, panel);
 
-// ===== Paso 1: Prueba de fetch a PayPal =====
-console.log('🔍 Fetch PayPal para:', b.email);
-const paypalTransactions = b.email
-  ? await fetch(
-      `${API_BASE}/get-paypal-transactions?email=${encodeURIComponent(b.email)}`,
-      { headers: getHeaders() }
-    ).then(r => r.ok ? r.json() : [])
-  : [];
-
-// Muestra en consola lo que devuelve la API de PayPal
-console.log('📦 PayPal Transactions:', paypalTransactions);
-
-// ===== Paso 2: Renderizado simple =====
+// ——— Sección PayPal ———
 const paypalSection = document.createElement('div');
 paypalSection.className = 'paypal-section';
-paypalSection.innerHTML = '<h4>Transacciones PayPal</h4>';
+paypalSection.innerHTML = '<h4>Transacción PayPal</h4>';
 panel.appendChild(paypalSection);
 
-if (!paypalTransactions.length) {
-  paypalSection.innerHTML += '<p>No hay transacciones PayPal.</p>';
-} else {
-  const detailsPP = document.createElement('details');
-  const summaryPP = document.createElement('summary');
-  summaryPP.innerText = `Ver transacciones (${paypalTransactions.length})`;
-  detailsPP.appendChild(summaryPP);
+const orderId = pedido.paypal_order_id;
+console.log('🔍 PayPal Order ID para pedido', pedido.id, ':', orderId);
 
-  const ulPP = document.createElement('ul');
-  ulPP.className = 'paypal-payments';
-  paypalTransactions.forEach(tx => {
-    const info     = tx.transaction_info;
-    const txId     = info.transaction_id;
-    const amount   = info.transaction_amount.value;
-    const currency = info.transaction_amount.currency_code;
-    const liPP     = document.createElement('li');
-    liPP.innerHTML = `
-      <div class="payment-info">
-        <span>${txId} — ${amount} ${currency}</span>
-      </div>`;
-    ulPP.appendChild(liPP);
-  });
-  detailsPP.appendChild(ulPP);
-  paypalSection.appendChild(detailsPP);
+if (!orderId) {
+  paypalSection.innerHTML += '<p>No hay Order ID de PayPal.</p>';
+} else {
+  try {
+    console.log(`🔗 Fetching PayPal data for Order ID ${orderId}`);
+    const resp = await fetch(
+      `${API_BASE}/get-paypal-transaction?paypalOrderId=${orderId}`,
+      { headers: getHeaders() }
+    );
+    console.log('📥 Respuesta PayPal (status):', resp.status);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const [capture] = await resp.json();
+    console.log('📦 PayPal Capture:', capture);
+
+    paypalSection.innerHTML += `
+      <p><strong>ID:</strong> ${capture.id}</p>
+      <p><strong>Estado:</strong> ${capture.status}</p>
+      <p><strong>Importe:</strong> ${capture.amount.value} ${capture.amount.currency_code}</p>
+    `;
+
+    const btn = document.createElement('button');
+    btn.innerText = 'Reembolsar PayPal';
+    btn.addEventListener('click', async () => {
+      const refundAmt = prompt('Importe a reembolsar:', capture.amount.value);
+      if (!refundAmt) return;
+      console.log(`💸 Intentando reembolso de ${refundAmt} ${capture.amount.currency_code} para captura ${capture.id}`);
+      try {
+        const r = await fetch(`${API_BASE}/refund-paypal`, {
+          method: 'POST',
+          headers: getHeaders(),
+          body: JSON.stringify({
+            transactionId: capture.id,
+            amount: refundAmt,
+            currency: capture.amount.currency_code
+          })
+        });
+        console.log('🔄 Respuesta reembolso (status):', r.status);
+        const j = await r.json();
+        if (r.ok) {
+          console.log('✅ Reembolso exitoso:', j);
+          alert('Reembolso OK');
+          await loadPedidos();
+        } else {
+          console.error('❌ Error en reembolso:', j);
+          alert('Error reembolso: ' + j.error);
+        }
+      } catch (e) {
+        console.error('⚠️ Error inesperado en reembolso PayPal:', e);
+        alert('Error inesperado en reembolso PayPal');
+      }
+    });
+    paypalSection.appendChild(btn);
+
+  } catch (e) {
+    console.error('⚠️ Error al cargar PayPal:', e);
+    paypalSection.innerHTML += '<p style="color:red;">Error cargando PayPal.</p>';
+  }
 }
+
 
   
         // Line items

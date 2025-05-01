@@ -20,12 +20,26 @@ function createApi({ woocommerce_url, consumer_key, consumer_secret }) {
 }
 
 /**
- * Obtiene pedidos filtrando por correo del cliente.
+ * Obtiene pedidos filtrando por correo del cliente,
+ * y añade a cada pedido el campo paypal_order_id extraído de meta_data.
  */
 async function obtenerPedidosPorEmail(config, email) {
   const api = createApi(config);
   const res = await api.get('orders', { search: email });
-  return Array.isArray(res.data) ? res.data : [];
+  let pedidos = Array.isArray(res.data) ? res.data : [];
+
+  // Extraer PayPal Order ID de meta_data (_ppcp_paypal_order_id)
+  pedidos = pedidos.map(pedido => {
+    const meta = Array.isArray(pedido.meta_data)
+      ? pedido.meta_data.find(m => m.key === '_ppcp_paypal_order_id')
+      : null;
+    return {
+      ...pedido,
+      paypal_order_id: meta ? meta.value : null
+    };
+  });
+
+  return pedidos;
 }
 
 /**
