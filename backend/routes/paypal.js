@@ -3,7 +3,7 @@ const checkout = require('@paypal/checkout-server-sdk');
 const router = express.Router();
 
 // GET /api/get-paypal-transaction?captureId=XXX&paypal_client_id=...&paypal_secret=...&paypal_env=...
-router.get('/get-paypal-transaction', async (req, res) => {
+router.get('/', async (req, res) => {
   // 1) Validar cabecera x-zendesk-secret
   const incomingSecret = req.get('x-zendesk-secret');
   if (!incomingSecret || incomingSecret !== process.env.ZENDESK_SHARED_SECRET) {

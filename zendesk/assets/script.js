@@ -115,6 +115,7 @@ client.on('app.registered', async () => {
       const url = `${API_BASE}/get-stripe-charges?` +
         `email=${encodeURIComponent(email)}&` +
         `stripe_secret_key=${encodeURIComponent(stripe_secret_key)}`;
+        console.log('🔍 Stripe URL:', url);   // <— agrégalo
       const res = await fetch(url, { headers: getHeaders() });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return await res.json();
@@ -229,6 +230,7 @@ client.on('app.registered', async () => {
         `paypal_client_id=${encodeURIComponent(paypal_client_id)}&` +
         `paypal_secret=${encodeURIComponent(paypal_secret)}&` +
         `paypal_env=${encodeURIComponent(paypal_env)}`;
+        console.log('🔍 PayPal URL:', url);  // <— y esto
       const res = await fetch(url, { headers: getHeaders() });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return await res.json();

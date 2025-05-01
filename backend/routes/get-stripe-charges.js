@@ -1,9 +1,11 @@
+// backend/routes/get-stripe-charges.js
+
 const express = require('express');
 const Stripe = require('stripe');
 const router = express.Router();
 
 // GET /api/get-stripe-charges?email=cliente@ejemplo.com&stripe_secret_key=tu_clave_secreta
-router.get('/get-stripe-charges', async (req, res) => {
+router.get('/', async (req, res) => {
   // 1) Validar cabecera x-zendesk-secret
   const incomingSecret = req.get('x-zendesk-secret');
   if (!incomingSecret || incomingSecret !== process.env.ZENDESK_SHARED_SECRET) {
