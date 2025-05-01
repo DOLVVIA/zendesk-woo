@@ -15,7 +15,7 @@ const client = new checkout.core.PayPalHttpClient(environment);
  * GET /api/get-paypal-transaction?paypalOrderId=<ID>
  * Devuelve un array con la captura extraída del Order de PayPal.
  */
-router.get('/get-paypal-transaction', async (req, res) => {
+router.get('/', async (req, res) => {
   // 0) Validar cabecera Zendesk
   const incoming = req.get('x-zendesk-secret');
   if (!incoming || incoming !== process.env.ZENDESK_SHARED_SECRET) {
