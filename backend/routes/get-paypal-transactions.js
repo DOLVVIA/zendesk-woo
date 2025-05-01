@@ -4,7 +4,7 @@ const express  = require('express');
 const checkout = require('@paypal/checkout-server-sdk');
 const router   = express.Router();
 
-// 1️⃣ Inicializa siempre en Live (forzar "live" mode)
+// Inicializa el cliente PayPal en modo LIVE
 const environment = new checkout.core.LiveEnvironment(
   process.env.PAYPAL_CLIENT_ID,
   process.env.PAYPAL_SECRET
@@ -12,31 +12,30 @@ const environment = new checkout.core.LiveEnvironment(
 const client = new checkout.core.PayPalHttpClient(environment);
 
 /**
- * GET /api/get-paypal-transactions?paypalCaptureId=<CAPTURE_ID>
- * Devuelve un array con la captura obtenida directamente a partir del Capture ID.
+ * GET /api/get-paypal-transactions?paypalCaptureId=<ID> o captureId=<ID>
+ * Devuelve la captura PayPal como array para mantener compatibilidad.
  */
 router.get('/', async (req, res) => {
-  // 0) Validar cabecera Zendesk
+  // Seguridad: validar clave Zendesk
   const incoming = req.get('x-zendesk-secret');
   if (!incoming || incoming !== process.env.ZENDESK_SHARED_SECRET) {
     return res.status(401).json({ error: 'Unauthorized: x-zendesk-secret inválido' });
   }
 
-  // 1) Parámetro obligatorio: Capture ID
-  const { paypalCaptureId } = req.query;
-  if (!paypalCaptureId) {
-    return res.status(400).json({ error: 'Falta parámetro paypalCaptureId.' });
+  // Acepta captureId o paypalCaptureId
+  const captureId = req.query.captureId || req.query.paypalCaptureId;
+  if (!captureId) {
+    return res.status(400).json({ error: 'Falta parámetro captureId o paypalCaptureId.' });
   }
 
   try {
-    // 2) Obtener captura desde PayPal
-    const captureRequest  = new checkout.payments.CapturesGetRequest(paypalCaptureId);
-    const captureResponse = await client.execute(captureRequest);
+    const request = new checkout.payments.CapturesGetRequest(captureId);
+    const response = await client.execute(request);
 
-    // 3) Devolver la captura dentro de un array
-    return res.json([ captureResponse.result ]);
+    // Devuelve como array (igual que la versión funcional anterior)
+    return res.json([ response.result ]);
   } catch (err) {
-    console.error('Error al obtener captura PayPal:', err);
+    console.error('❌ Error al obtener captura PayPal:', err.message);
     return res.status(500).json({ error: err.message });
   }
 });
