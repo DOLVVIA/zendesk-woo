@@ -354,7 +354,7 @@ client.on('app.registered', async () => {
       await loadProvincias();
   
       // Aquí reemplazamos todo el forEach:
-      pedidos.forEach(pedido => {
+      for (const pedido of pedidos) {
         const acc = document.createElement('button');
         acc.className = 'accordion';
         acc.innerText = `Pedido #${pedido.id} – ${pedido.total} € – ${pedido.status}`;
@@ -378,6 +378,38 @@ client.on('app.registered', async () => {
           </p>
           <hr>
         `;
+
+        // ——— Sección Stripe ———
+const stripeSection = document.createElement('div');
+stripeSection.className = 'stripe-section';
+stripeSection.innerHTML = '<h4>Cargos Stripe</h4>';
+panel.appendChild(stripeSection);
+
+// Carga y renderiza los cargos de Stripe
+const charges = b.email
+  ? await loadStripeCharges(b.email)
+  : [];
+renderStripeCharges(charges, stripeSection, panel);
+
+// ——— Sección PayPal ———
+// Ajusta aquí la propiedad que guarda tu captureId en el pedido
+const captureId =
+  pedido.transaction_id 
+  || pedido.payment_capture_id 
+  || pedido.meta_data?.find(m => m.key === 'transaction_id')?.value;
+
+const paypalSection = document.createElement('div');
+paypalSection.className = 'paypal-section';
+paypalSection.innerHTML = '<h4>Transacción PayPal</h4>';
+panel.appendChild(paypalSection);
+
+if (captureId) {
+  const txs = await loadPayPalTransaction(captureId);
+  renderPayPalTransactions(txs, paypalSection, panel);
+} else {
+  paypalSection.innerHTML += '<p>No hay transacción PayPal para este pedido.</p>';
+}
+
   
         // Line items
         pedido.line_items.forEach((item, idx) => {
@@ -452,7 +484,7 @@ client.on('app.registered', async () => {
           acc.classList.toggle('active', !open);
           ajustarAlto();
         });
-      });
+      }
   
       ajustarAlto();
   
