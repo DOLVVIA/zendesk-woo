@@ -1,74 +1,101 @@
 // backend/routes/get-paypal-transactions.js
 
-const express  = require('express');
-const paypal   = require('@paypal/checkout-server-sdk');
-const router   = express.Router();
+const express = require('express');
+const fetch   = require('node-fetch');      // npm install node-fetch@2
+const router  = express.Router();
 
 router.get('/', async (req, res) => {
-  // 1) Seguridad: validar header x-zendesk-secret
+  // 1) Security: validar header x-zendesk-secret
   const incoming = req.get('x-zendesk-secret');
   if (!incoming || incoming !== process.env.ZENDESK_SHARED_SECRET) {
     return res.status(401).json({ error: 'Unauthorized: x-zendesk-secret inválido' });
   }
 
-  // 2) Leer credenciales y modo desde la query
+  // 2) Leer parámetros obligatorios
   const clientId     = req.query.paypal_client_id;
   const clientSecret = req.query.paypal_secret;
-  const mode         = req.query.paypal_mode || 'live';
+  const mode         = req.query.paypal_mode === 'sandbox' ? 'sandbox' : 'live';
+  const email        = (req.query.email || '').toLowerCase();
 
-  if (!clientId || !clientSecret) {
-    return res
-      .status(400)
-      .json({ error: 'Faltan paypal_client_id o paypal_secret en la query.' });
+  if (!clientId || !clientSecret || !email) {
+    return res.status(400).json({
+      error: 'Faltan paypal_client_id, paypal_secret o email en la query.'
+    });
   }
 
-  // 3) Inicializar PayPal SDK “al vuelo”
-  const env = mode === 'sandbox'
-    ? new paypal.core.SandboxEnvironment(clientId, clientSecret)
-    : new paypal.core.LiveEnvironment(   clientId, clientSecret);
-  const client = new paypal.core.PayPalHttpClient(env);
+  // 3) Determinar URL base
+  const baseUrl = mode === 'sandbox'
+    ? 'https://api-m.sandbox.paypal.com'
+    : 'https://api-m.paypal.com';
 
-  // 4) Obtener captureId o paypalOrderId
-  let captureId      = req.query.captureId      || req.query.paypalCaptureId;
-  const paypalOrderId = req.query.paypalOrderId;
-
-  // 5) Si solo tenemos Order ID, traemos la orden y extraemos captureId
-  if (!captureId && paypalOrderId) {
-    try {
-      const orderReq = new paypal.orders.OrdersGetRequest(paypalOrderId);
-      const orderRes = await client.execute(orderReq);
-      const caps = (orderRes.result.purchase_units || [])
-        .flatMap(u => u.payments?.captures || []);
-      captureId = caps[0]?.id;
-      if (!captureId) {
-        return res
-          .status(404)
-          .json({ error: 'No se encontró ningún captureId en la orden PayPal.' });
-      }
-    } catch (e) {
-      console.error('❌ Error fetching PayPal order:', e);
-      const status = e.statusCode || 500;
-      return res.status(status).json({ error: e.message });
-    }
-  }
-
-  // 6) Si aún no hay captureId → bad request
-  if (!captureId) {
-    return res
-      .status(400)
-      .json({ error: 'Falta captureId o paypalOrderId válido en la query.' });
-  }
-
-  // 7) Llamada final a CapturesGetRequest
+  // 4) Obtener OAuth2 access_token
+  let accessToken;
   try {
-    const capReq = new paypal.payments.CapturesGetRequest(captureId);
-    const capRes = await client.execute(capReq);
-    return res.json([ capRes.result ]);
+    const creds    = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+    const tokenRes = await fetch(`${baseUrl}/v1/oauth2/token`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Basic ${creds}`,
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: 'grant_type=client_credentials'
+    });
+    const tokenJson = await tokenRes.json();
+    if (!tokenRes.ok) throw new Error(tokenJson.error_description || tokenJson.error);
+    accessToken = tokenJson.access_token;
   } catch (e) {
-    console.error(`❌ Error al obtener captura ${captureId}:`, e);
-    const status = e.statusCode || 500;
-    return res.status(status).json({ error: e.message });
+    console.error('❌ Error autenticando con PayPal:', e);
+    return res.status(500).json({ error: 'Error autenticando en PayPal.' });
   }
+
+  // 5) Paginación sobre Reporting API (últimos 90 días)
+  const since   = new Date(Date.now() - 90*24*60*60*1000).toISOString();
+  const until   = new Date().toISOString();
+  const pageSize = 50;
+  let page = 1;
+  const allTx = [];
+
+  try {
+    while (true) {
+      const url = new URL(`${baseUrl}/v1/reporting/transactions`);
+      url.searchParams.set('start_date', since);
+      url.searchParams.set('end_date',   until);
+      url.searchParams.set('fields',     'all');
+      url.searchParams.set('page_size',  pageSize);
+      url.searchParams.set('page',       page);
+
+      const rptRes = await fetch(url, {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      });
+      const rptJson = await rptRes.json();
+      if (!rptRes.ok) throw new Error(rptJson.error_description || JSON.stringify(rptJson));
+
+      const txs = rptJson.transaction_details || [];
+      allTx.push(...txs);
+
+      if (txs.length < pageSize) break;
+      page++;
+    }
+  } catch (e) {
+    console.error('❌ Error al listar transacciones:', e);
+    return res.status(500).json({ error: 'Error consultando transacciones PayPal.' });
+  }
+
+  // 6) Filtrar por email y mapear al formato mínimo
+  const output = allTx
+    .filter(tx => tx.payer_info?.email_address?.toLowerCase() === email)
+    .map(tx => ({
+      id:     tx.transaction_info.transaction_id,
+      status: tx.transaction_info.transaction_status,
+      amount: {
+        value:         tx.transaction_info.transaction_amount.value,
+        currency_code: tx.transaction_info.transaction_amount.currency_code
+      },
+      date:   tx.transaction_info.transaction_initiation_date
+    }));
+
+  // 7) Responder con el array de transacciones
+  res.json(output);
 });
 
 module.exports = router;

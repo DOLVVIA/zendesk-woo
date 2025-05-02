@@ -222,9 +222,9 @@ client.on('app.registered', async () => {
     container.appendChild(details);
   }
 
-  async function refundPayPal(transactionId, amount) {
+  async function refundPayPal(captureId, amount, panel) {
     try {
-      const payload = { transactionId, amount };
+      const payload = { transactionId: captureId, amount };
       const res = await fetch(`${API_BASE}/refund-paypal`, {
         method: 'POST',
         headers: getHeaders(),
@@ -232,14 +232,14 @@ client.on('app.registered', async () => {
       });
       const j = await res.json();
       if (res.ok) {
-        alert('Reembolso PayPal OK');
+        showMessage(panel, `Reembolso OK (ID: ${j.id || j.refund?.id})`);
         await loadPedidos();
       } else {
-        alert('Error reembolso PayPal: ' + j.error);
+        showMessage(panel, `Error reembolso: ${j.error}`, 'error');
       }
     } catch (e) {
       console.error('Error inesperado en reembolso PayPal:', e);
-      alert('Error inesperado al reembolsar PayPal');
+      showMessage(panel, 'Error inesperado al reembolsar PayPal', 'error');
     }
   }
 
@@ -292,7 +292,7 @@ client.on('app.registered', async () => {
           <hr>
         `;
 
-        // Line items + botones de WooCommerce
+        // Line items + botones WooCommerce
         pedido.line_items.forEach((item, idx) => {
           panel.innerHTML += `
             <div class="producto">
@@ -304,16 +304,31 @@ client.on('app.registered', async () => {
               Precio: ${item.total} €
             </div>
           `;
+          const btnEdit = document.createElement('button');
+          btnEdit.className = 'btn-edit-item';
+          btnEdit.dataset.orderId     = pedido.id;
+          btnEdit.dataset.index       = idx;
+          btnEdit.dataset.productId   = item.product_id;
+          btnEdit.dataset.variationId = item.variation_id||'';
+          btnEdit.dataset.quantity    = item.quantity;
+          btnEdit.innerText = 'Editar talla/cantidad';
+          panel.appendChild(btnEdit);
+
+          const btnDel = document.createElement('button');
+          btnDel.className = 'btn-delete-item';
+          btnDel.dataset.orderId = pedido.id;
+          btnDel.dataset.index   = idx;
+          btnDel.innerText = 'Eliminar artículo';
+          panel.appendChild(btnDel);
         });
 
-        // Añadir artículo
+        // Botones Añadir artículo, Cambiar estado, Editar dirección
         const btnAdd = document.createElement('button');
         btnAdd.className = 'btn-add-item';
         btnAdd.dataset.orderId = pedido.id;
         btnAdd.innerText = 'Añadir artículo';
         panel.appendChild(btnAdd);
 
-        // Cambiar estado
         const btnStatus = document.createElement('button');
         btnStatus.className = 'btn-change-status';
         btnStatus.dataset.orderId = pedido.id;
@@ -321,7 +336,6 @@ client.on('app.registered', async () => {
         btnStatus.innerText = 'Cambiar estado';
         panel.appendChild(btnStatus);
 
-        // Editar dirección
         const btnEditAddr = document.createElement('button');
         btnEditAddr.className = 'btn-edit-address';
         btnEditAddr.dataset.orderId = pedido.id;
@@ -338,68 +352,159 @@ client.on('app.registered', async () => {
         `;
         panel.appendChild(formAddr);
 
-        // Stripe
-        const stripeSection = document.createElement('div');
-        stripeSection.className = 'stripe-section';
-        stripeSection.innerHTML = '<h4>Cargos Stripe</h4>';
-        panel.appendChild(stripeSection);
-        const charges = b.email ? await loadStripeCharges(b.email) : [];
-        renderStripeCharges(charges, stripeSection, panel);
-
-        // PayPal por email
-        const paypalSection = document.createElement('div');
-        paypalSection.className = 'paypal-section';
-        paypalSection.innerHTML = '<h4>Transacciones PayPal</h4>';
-        panel.appendChild(paypalSection);
-        try {
-          const resp = await fetch(
-            `${API_BASE}/search-paypal-transactions?email=${encodeURIComponent(b.email||'')}`,
-            { headers: getHeaders() }
-          );
-          if (resp.status === 404) {
-            paypalSection.innerHTML += '<p>No hay transacciones PayPal para este cliente.</p>';
-          } else if (!resp.ok) {
-            throw new Error(`HTTP ${resp.status}`);
-          } else {
-            const txs = await resp.json();
-            const details = document.createElement('details');
-            details.innerHTML = `<summary>Ver transacciones (${txs.length})</summary>`;
-            const ul = document.createElement('ul');
-            ul.className = 'paypal-payments';
-            txs.forEach(tx => {
-              const li = document.createElement('li');
-              const amt = `${tx.amount.value} ${tx.amount.currency_code||'EUR'}`;
-              li.innerHTML = `
-                <div class="payment-info">
-                  <span>${tx.id} — ${amt}</span>
-                  <span class="badge success">${tx.status}</span>
-                </div>
-              `;
-              const btnFull = document.createElement('button');
-              btnFull.innerText = 'Reembolso completo';
-              btnFull.addEventListener('click', () => refundPayPal(tx.id, tx.amount.value));
-              const btnPart = document.createElement('button');
-              btnPart.innerText = 'Reembolso parcial';
-              btnPart.addEventListener('click', async () => {
-                const val = prompt('Importe parcial a reembolsar:', tx.amount.value);
-                if (val) refundPayPal(tx.id, val);
-              });
-              const wrap = document.createElement('div');
-              wrap.className = 'refund-buttons';
-              wrap.append(btnFull, btnPart);
-              li.appendChild(wrap);
-              ul.appendChild(li);
-            });
-            details.appendChild(ul);
-            paypalSection.appendChild(details);
-          }
-        } catch (e) {
-          console.error('⚠️ Error cargando PayPal:', e);
-          paypalSection.innerHTML += '<p style="color:red;">Error cargando PayPal.</p>';
+        // Sección Stripe (al final)
+        {
+          const charges = b.email ? await loadStripeCharges(b.email) : [];
+          const stripeContainer = document.createElement('div');
+          stripeContainer.className = 'stripe-container';
+          renderStripeCharges(charges, stripeContainer, panel);
+          panel.appendChild(stripeContainer);
         }
+
+// … justo después de la sección Stripe …
+
+// Sección PayPal (al final)
+{
+  const metaArr = Array.isArray(pedido.meta_data) ? pedido.meta_data : [];
+  let captureId = null, paypalOrderId = null;
+  for (let { key, value } of metaArr) {
+    const norm = key.replace(/[\s\-_]/g,'').toLowerCase();
+    if (/paypal.*capture.*id/.test(norm) || /paypal.*transaction.*id/.test(norm)) {
+      captureId = value;
+      break;
+    }
+  }
+  if (!captureId) {
+    const entry = metaArr.find(({ key }) => {
+      const norm = key.replace(/[\s\-_]/g,'').toLowerCase();
+      return /ppcp_paypal_order_id/.test(norm) || /paypal.*order.*id/.test(norm);
+    });
+    paypalOrderId = entry?.value || null;
+  }
+
+  const paypalDetails = document.createElement('details');
+  paypalDetails.className = 'paypal-payments';
+  const sumP = document.createElement('summary');
+  sumP.innerText = 'Cargando PayPal…';
+  paypalDetails.appendChild(sumP);
+
+  const contentDiv = document.createElement('div');
+  contentDiv.className = 'paypal-content';
+
+  if (!captureId && !paypalOrderId) {
+    contentDiv.innerHTML = '<p>No hay ningún ID de PayPal en meta_data.</p>';
+    paypalDetails.appendChild(contentDiv);
+    panel.appendChild(paypalDetails);
+  } else {
+    const { paypal_client_id, paypal_secret, paypal_mode } = SETTINGS;
+    if (!paypal_client_id || !paypal_secret) {
+      contentDiv.innerHTML = '<p style="color:red;">Faltan credenciales PayPal en configuración.</p>';
+      paypalDetails.appendChild(contentDiv);
+      panel.appendChild(paypalDetails);
+    } else {
+      // Montamos la query con email + credenciales
+      const params = new URLSearchParams();
+      params.set('email', b.email);
+      params.set('paypal_client_id', paypal_client_id);
+      params.set('paypal_secret', paypal_secret);
+      params.set('paypal_mode', paypal_mode || 'live');
+
+      fetch(`${API_BASE}/get-paypal-transactions?${params}`, {
+        headers: getHeaders()
+      })
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then(transactions => {
+        // Ajustamos el summary
+        sumP.innerText = `Ver transacciones PayPal (${transactions.length})`;
+
+        // Si no hay transacciones
+        if (!transactions.length) {
+          contentDiv.innerHTML = '<p>No hay transacciones PayPal para este email.</p>';
+        } else {
+          // Limpiamos
+          contentDiv.innerHTML = '';
+          // Pintamos cada transacción
+          transactions.forEach(tx => {
+            const amt = `${tx.amount.value} ${tx.amount.currency_code}`;
+            const statusTxt = tx.status === 'COMPLETED' ? 'Éxitoso' : tx.status;
+            const badgeClass = tx.status === 'COMPLETED' ? 'success' : 'failed';
+
+            const item = document.createElement('div');
+            item.className = 'payment-info';
+            item.innerHTML = `
+              <span>${tx.id} — ${amt}</span>
+              <span class="badge ${badgeClass}">${statusTxt}</span>
+            `;
+
+            // Botones reembolso
+            const btnFull = document.createElement('button');
+            btnFull.innerText = 'Reembolso completo';
+            btnFull.disabled = tx.status !== 'COMPLETED';
+            btnFull.addEventListener('click', () =>
+              refundPayPal(tx.id, tx.amount.value, panel)
+            );
+
+            const btnPart = document.createElement('button');
+            btnPart.innerText = 'Reembolso parcial';
+
+            const formPart = document.createElement('form');
+            formPart.className = 'partial-refund-form';
+            formPart.style.display = 'none';
+            formPart.innerHTML = `
+              <input type="number" name="partial" step="0.01" min="0.01" max="${tx.amount.value}" placeholder="Ej: 12.34">
+              <button type="submit">Aceptar</button>
+              <button type="button" class="cancel-partial">Cancelar</button>
+            `;
+
+            btnPart.addEventListener('click', () => {
+              formPart.style.display = 'flex';
+              btnPart.style.display = 'none';
+              formPart.querySelector('input').focus();
+            });
+            formPart.querySelector('.cancel-partial').addEventListener('click', () => {
+              formPart.style.display = 'none';
+              btnPart.style.display = '';
+            });
+            formPart.addEventListener('submit', async ev => {
+              ev.preventDefault();
+              const val = parseFloat(formPart.partial.value.replace(',', '.'));
+              if (!val || val <= 0 || val > parseFloat(tx.amount.value)) {
+                return alert(`Importe inválido (0 < importe ≤ ${tx.amount.value})`);
+              }
+              await refundPayPal(tx.id, val, panel);
+            });
+
+            const wrap = document.createElement('div');
+            wrap.className = 'refund-buttons';
+            wrap.append(btnFull, btnPart, formPart);
+
+            item.appendChild(wrap);
+            contentDiv.appendChild(item);
+          });
+        }
+
+        paypalDetails.appendChild(contentDiv);
+        panel.appendChild(paypalDetails);
+      })
+      .catch(err => {
+        console.error('⚠️ Error cargando PayPal:', err);
+        contentDiv.innerHTML = '<p style="color:red;">Error cargando PayPal.</p>';
+        paypalDetails.appendChild(contentDiv);
+        panel.appendChild(paypalDetails);
+      });
+    }
+  }
+}
+// Fin Sección PayPal
+
+// … aquí continúa tu código normal: resultados.appendChild(acc), etc. …
 
         resultados.appendChild(acc);
         resultados.appendChild(panel);
+
         acc.addEventListener('click', () => {
           const open = panel.style.display === 'block';
           panel.style.display = open ? 'none' : 'block';
@@ -418,11 +523,11 @@ client.on('app.registered', async () => {
     }
   }
 
-  // Global click listener: control WooCommerce buttons
+  // Global click listener: estado, dirección, editar, eliminar, etc.
   document.addEventListener('click', async e => {
     const { woocommerce_url, consumer_key, consumer_secret } = getWooConfig();
 
-    // Cambiar estado
+    // 1) Cambiar estado
     if (e.target.matches('.btn-change-status')) {
       const orderId = e.target.dataset.orderId;
       const currentStatus = e.target.dataset.status;
@@ -467,7 +572,7 @@ client.on('app.registered', async () => {
         form.appendChild(btnOk);
         const btnCancel = document.createElement('button');
         btnCancel.innerText = 'Cancelar';
-        btnCancel.addEventListener('click', () => form.style.display = 'none');
+        btnCancel.addEventListener('click', () => { form.style.display = 'none'; });
         form.appendChild(btnCancel);
         e.target.parentNode.appendChild(form);
       }
@@ -475,7 +580,7 @@ client.on('app.registered', async () => {
       return;
     }
 
-    // Editar dirección
+    // 2) Editar dirección
     if (e.target.matches('.btn-edit-address')) {
       const orderId = e.target.dataset.orderId;
       const panel   = e.target.parentNode;
@@ -492,15 +597,16 @@ client.on('app.registered', async () => {
           const title = document.createElement('h4');
           title.innerText = type === 'billing' ? 'Facturación' : 'Envío';
           div.appendChild(title);
-          [['first_name','Nombre'],['last_name','Apellidos'],['address_1','Dirección 1'],['address_2','Dirección 2'],['postcode','Código postal']].forEach(([k,label]) => {
-            const lbl = document.createElement('label');
-            lbl.innerText = label;
-            const inp = document.createElement('input');
-            inp.name = `${type}_${k}`;
-            inp.value = data[k] || '';
-            lbl.appendChild(inp);
-            div.appendChild(lbl);
-          });
+          [['first_name','Nombre'],['last_name','Apellidos'],['address_1','Dirección 1'],['address_2','Dirección 2'],['postcode','Código postal']]
+            .forEach(([key,labelText]) => {
+              const label = document.createElement('label');
+              label.innerText = labelText;
+              const inp = document.createElement('input');
+              inp.name  = `${type}_${key}`;
+              inp.value = data[key] || '';
+              label.appendChild(inp);
+              div.appendChild(label);
+            });
           const lblCity = document.createElement('label');
           lblCity.innerText = 'Ciudad';
           const selCity = document.createElement('select');
@@ -539,14 +645,14 @@ client.on('app.registered', async () => {
         btnCancel.className = 'btn-cancel-address';
         btnCancel.innerText = 'Cancelar';
         btnCancel.style.margin = '0 4px';
-        btnCancel.addEventListener('click', () => form.style.display = 'none');
+        btnCancel.addEventListener('click', () => { form.style.display = 'none'; });
         form.appendChild(btnCancel);
       }
       form.style.display = form.style.display === 'none' ? 'block' : 'none';
       return;
     }
 
-    // Guardar dirección
+    // 3) Guardar dirección
     if (e.target.matches('.btn-save-address')) {
       const form = e.target.closest('.form-address');
       const orderId = form.dataset.orderId;
@@ -587,7 +693,7 @@ client.on('app.registered', async () => {
       return;
     }
 
-    // Eliminar artículo
+    // 4) Eliminar artículo
     if (e.target.matches('.btn-delete-item')) {
       const orderId  = e.target.dataset.orderId;
       const lineIndex = e.target.dataset.index;
@@ -597,7 +703,8 @@ client.on('app.registered', async () => {
         form.className = 'delete-item-form';
         form.style.margin = '8px 0';
         const info = document.createElement('p');
-        info.innerText = 'Antes de eliminar este artículo, el pedido pasará a "Pendiente de pago". ¿Continuar?';
+        info.innerText =
+          'Antes de eliminar este artículo, el pedido pasará a "Pendiente de pago". ¿Continuar?';
         form.appendChild(info);
         const btnConfirm = document.createElement('button');
         btnConfirm.innerText = 'Confirmar';
@@ -642,7 +749,7 @@ client.on('app.registered', async () => {
         form.appendChild(btnConfirm);
         const btnCancel = document.createElement('button');
         btnCancel.innerText = 'Cancelar';
-        btnCancel.addEventListener('click', () => form.style.display = 'none');
+        btnCancel.addEventListener('click', () => { form.style.display = 'none'; });
         form.appendChild(btnCancel);
         e.target.parentNode.appendChild(form);
       }
@@ -650,7 +757,7 @@ client.on('app.registered', async () => {
       return;
     }
 
-    // Editar talla/cantidad
+    // 5) Editar talla/cantidad
     if (e.target.matches('.btn-edit-item')) {
       const orderId    = e.target.dataset.orderId;
       const lineIndex  = e.target.dataset.index;
@@ -763,7 +870,7 @@ client.on('app.registered', async () => {
       return;
     }
 
-    // Añadir artículo
+    // 6) Añadir artículo
     if (e.target.matches('.btn-add-item')) {
       const orderId = e.target.dataset.orderId;
       let form = e.target.parentNode.querySelector('.add-item-form');
@@ -797,7 +904,7 @@ client.on('app.registered', async () => {
         const btnCancel = document.createElement('button');
         btnCancel.innerText = 'Cancelar';
         btnCancel.style.margin = '0 4px';
-        btnCancel.addEventListener('click', () => form.style.display = 'none');
+        btnCancel.addEventListener('click', () => { form.style.display = 'none'; });
         form.appendChild(btnCancel);
         selProd.addEventListener('change', async () => {
           const prodId = selProd.value;
@@ -836,11 +943,14 @@ client.on('app.registered', async () => {
           if (!prodId || !qty || (selVar.style.display!=='none' && !varId)) {
             return alert('Completa todos los campos.');
           }
-          const payload = {
-            ...getWooConfig(),
+          const body = {
             product_id: Number(prodId),
             quantity:   Number(qty),
             ...(varId ? { variation_id: Number(varId) } : {})
+          };
+          const payload = {
+            ...getWooConfig(),
+            ...body
           };
           const res = await fetch(`${API_BASE}/anadir-item?order_id=${orderId}`, {
             method: 'POST',
@@ -862,7 +972,7 @@ client.on('app.registered', async () => {
     }
   });
 
-  // Initialize
+  // Initialize everything
   await loadOrderStatuses();
   await loadProducts();
   await loadCities();
