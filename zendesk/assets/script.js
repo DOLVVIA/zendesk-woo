@@ -317,19 +317,35 @@ console.log(
 );
 
 if (!captureId && !paypalOrderId) {
-  // Ningún ID de PayPal disponible
   paypalSection.innerHTML += '<p>No hay ningún ID de PayPal en meta_data.</p>';
-
 } else {
-  // 3) Preparamos la query string según el ID que tengamos
-  const qs = captureId
-    ? `paypalCaptureId=${encodeURIComponent(captureId)}`
-    : `paypalOrderId=${encodeURIComponent(paypalOrderId)}`;
+  // ——— AÑADE AQUÍ LAS CREDENCIALES DE LA APP ———
+  const {
+    paypal_client_id,
+    paypal_secret,
+    paypal_mode
+  } = SETTINGS;
+
+  if (!paypal_client_id || !paypal_secret) {
+    paypalSection.innerHTML += '<p style="color:red;">Faltan credenciales de PayPal en la configuración.</p>';
+    return;
+  }
+
+  // 3) Montamos todos los parámetros
+  const params = new URLSearchParams();
+  if (captureId) {
+    params.set('paypalCaptureId', captureId);
+  } else {
+    params.set('paypalOrderId', paypalOrderId);
+  }
+  params.set('paypal_client_id', paypal_client_id);
+  params.set('paypal_secret', paypal_secret);
+  params.set('paypal_mode', paypal_mode || 'live');
 
   try {
-    console.log(`🔗 Fetching PayPal data with ${qs}`);
+    console.log(`🔗 Fetching PayPal data with ${params.toString()}`);
     const resp = await fetch(
-      `${API_BASE}/get-paypal-transactions?${qs}`,
+      `${API_BASE}/get-paypal-transactions?${params.toString()}`,
       { headers: getHeaders() }
     );
     console.log('📥 Respuesta PayPal (status):', resp.status);
