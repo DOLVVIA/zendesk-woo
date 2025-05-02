@@ -243,6 +243,7 @@ client.on('app.registered', async () => {
       // Aquí reemplazamos todo el forEach:
       for (const pedido of pedidos) {
         console.log('🔍 meta_data del pedido:', pedido.meta_data);
+      
         const acc = document.createElement('button');
         acc.className = 'accordion';
         acc.innerText = `Pedido #${pedido.id} – ${pedido.total} € – ${pedido.status}`;
@@ -285,70 +286,98 @@ paypalSection.className = 'paypal-section';
 paypalSection.innerHTML = '<h4>Transacción PayPal</h4>';
 panel.appendChild(paypalSection);
 
-const captureId = pedido.paypal_capture_id;
-console.log('🔍 PayPal Capture ID para pedido', pedido.id, ':', captureId);
+// ——— EXTRAER PayPal ID de forma robusta ———
+const meta = Array.isArray(pedido.meta_data) ? pedido.meta_data : [];
 
+let captureId = null;
+let paypalOrderId = null;
+
+// 1) Buscamos cualquier key que contenga "paypal" + ("capture" o "transaction") + "id"
+for (let { key, value } of meta) {
+  const norm = key.replace(/[\s\-_]/g, '').toLowerCase();
+  if (/paypal.*capture.*id/.test(norm) || /paypal.*transaction.*id/.test(norm)) {
+    captureId = value;
+    break;
+  }
+}
+
+// 2) Si no hay captureId, miramos si tenemos el Order ID (_ppcp_paypal_order_id)
 if (!captureId) {
-  paypalSection.innerHTML += '<p>No hay Capture ID de PayPal.</p>';
+  const entry = meta.find(({ key }) => {
+    const norm = key.replace(/[\s\-_]/g, '').toLowerCase();
+    return norm.includes('ppcppaypalorderid')
+        || /paypal.*order.*id/.test(norm);
+  });
+  paypalOrderId = entry?.value || null;
+}
+
+console.log(
+  '🔍 paypalOrderId:', paypalOrderId,
+  'captureId:',      captureId
+);
+
+if (!captureId && !paypalOrderId) {
+  // Ningún ID de PayPal disponible
+  paypalSection.innerHTML += '<p>No hay ningún ID de PayPal en meta_data.</p>';
+
 } else {
+  // 3) Preparamos la query string según el ID que tengamos
+  const qs = captureId
+    ? `paypalCaptureId=${encodeURIComponent(captureId)}`
+    : `paypalOrderId=${encodeURIComponent(paypalOrderId)}`;
+
   try {
-    console.log(`🔗 Fetching PayPal data for Capture ID ${captureId}`);
+    console.log(`🔗 Fetching PayPal data with ${qs}`);
     const resp = await fetch(
-      `${API_BASE}/get-paypal-transactions?paypalCaptureId=${captureId}`,
+      `${API_BASE}/get-paypal-transactions?${qs}`,
       { headers: getHeaders() }
     );
     console.log('📥 Respuesta PayPal (status):', resp.status);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
     const [capture] = await resp.json();
     console.log('📦 PayPal Capture:', capture);
 
+    // 4) Renderizamos los datos
     paypalSection.innerHTML += `
       <p><strong>ID:</strong> ${capture.id}</p>
       <p><strong>Estado:</strong> ${capture.status}</p>
       <p><strong>Importe:</strong> ${capture.amount.value} ${capture.amount.currency_code}</p>
     `;
 
+    // 5) Botón de reembolso
     const btn = document.createElement('button');
     btn.innerText = 'Reembolsar PayPal';
     btn.addEventListener('click', async () => {
       const refundAmt = prompt('Importe a reembolsar:', capture.amount.value);
       if (!refundAmt) return;
-      console.log(`💸 Intentando reembolso de ${refundAmt} ${capture.amount.currency_code} para captura ${capture.id}`);
-      try {
-        const r = await fetch(`${API_BASE}/refund-paypal`, {
-          method: 'POST',
-          headers: getHeaders(),
-          body: JSON.stringify({
-            transactionId: capture.id,
-            amount: refundAmt,
-            currency: capture.amount.currency_code
-          })
-        });
-        console.log('🔄 Respuesta reembolso (status):', r.status);
-        const j = await r.json();
-        if (r.ok) {
-          console.log('✅ Reembolso exitoso:', j);
-          alert('Reembolso OK');
-          await loadPedidos();
-        } else {
-          console.error('❌ Error en reembolso:', j);
-          alert('Error reembolso: ' + j.error);
-        }
-      } catch (e) {
-        console.error('⚠️ Error inesperado en reembolso PayPal:', e);
-        alert('Error inesperado en reembolso PayPal');
+      console.log(`💸 Reembolsando ${refundAmt} ${capture.amount.currency_code} para captura ${capture.id}`);
+      const r = await fetch(`${API_BASE}/refund-paypal`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({
+          transactionId: capture.id,
+          amount: refundAmt,
+          currency: capture.amount.currency_code
+        })
+      });
+      console.log('🔄 Respuesta reembolso (status):', r.status);
+      const j = await r.json();
+      if (r.ok) {
+        alert('Reembolso OK');
+        await loadPedidos();
+      } else {
+        alert('Error reembolso: ' + j.error);
       }
     });
     paypalSection.appendChild(btn);
 
   } catch (e) {
-    console.error('⚠️ Error al cargar PayPal:', e);
+    console.error('⚠️ Error cargando PayPal:', e);
     paypalSection.innerHTML += '<p style="color:red;">Error cargando PayPal.</p>';
   }
 }
 
-
-  
         // Line items
         pedido.line_items.forEach((item, idx) => {
           panel.innerHTML += `
