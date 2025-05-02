@@ -1,21 +1,22 @@
 // backend/routes/get-paypal-transactions.js
 
 const express = require('express');
-const paypal  = require('@paypal/checkout-server-sdk');
+const fetch   = require('node-fetch'); // npm install node-fetch@2
 const router  = express.Router();
 
 router.get('/', async (req, res) => {
-  // 1) Seguridad
-  const secret = req.get('x-zendesk-secret');
-  if (!secret || secret !== process.env.ZENDESK_SHARED_SECRET) {
+  // 1) Seguridad: validar x-zendesk-secret
+  const incoming = req.get('x-zendesk-secret');
+  if (!incoming || incoming !== process.env.ZENDESK_SHARED_SECRET) {
     return res.status(401).json({ error: 'Unauthorized: x-zendesk-secret inválido' });
   }
 
-  // 2) Lectura de parámetros
+  // 2) Leer parámetros
   const clientId     = req.query.paypal_client_id;
   const clientSecret = req.query.paypal_secret;
-  const mode         = req.query.paypal_mode === 'sandbox' ? 'sandbox' : 'live';
   const email        = (req.query.email || '').toLowerCase();
+  // Si quieres pruebas por defecto, fuerza 'sandbox'
+  const mode         = req.query.paypal_mode === 'live' ? 'live' : 'sandbox';
 
   if (!clientId || !clientSecret || !email) {
     return res.status(400).json({
@@ -23,13 +24,42 @@ router.get('/', async (req, res) => {
     });
   }
 
-  // 3) Inicializar SDK
-  const env = mode === 'sandbox'
-    ? new paypal.core.SandboxEnvironment(clientId, clientSecret)
-    : new paypal.core.LiveEnvironment(   clientId, clientSecret);
-  const client = new paypal.core.PayPalHttpClient(env);
+  // 3) Construir la URL base según el modo
+  const baseUrl = mode === 'live'
+    ? 'https://api-m.paypal.com'
+    : 'https://api-m.sandbox.paypal.com';
 
-  // 4) Paginación Reporting API (últimos 90 días)
+  console.log(`→ PayPal mode: ${mode}, baseUrl: ${baseUrl}`);
+
+  // 4) Obtener access_token
+  let accessToken;
+  try {
+    const auth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+    const tokenRes = await fetch(`${baseUrl}/v1/oauth2/token`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Basic ${auth}`,
+        'Content-Type':  'application/x-www-form-urlencoded'
+      },
+      body: 'grant_type=client_credentials'
+    });
+
+    const tokenText = await tokenRes.text();
+    console.log(`→ /v1/oauth2/token status: ${tokenRes.status}, body: ${tokenText}`);
+
+    if (!tokenRes.ok) {
+      const err = JSON.parse(tokenText);
+      return res.status(500).json({ error: err.error_description || err.error });
+    }
+
+    const tokenJson = JSON.parse(tokenText);
+    accessToken = tokenJson.access_token;
+  } catch (e) {
+    console.error('❌ Error autenticando con PayPal:', e);
+    return res.status(500).json({ error: 'Error autenticando en PayPal.' });
+  }
+
+  // 5) Paginación en Reporting API (últimos 90 días)
   const since   = new Date(Date.now() - 90*24*60*60*1000).toISOString();
   const until   = new Date().toISOString();
   const pageSize = 50;
@@ -38,28 +68,34 @@ router.get('/', async (req, res) => {
 
   try {
     while (true) {
-      const path = `/v1/reporting/transactions` +
-        `?start_date=${encodeURIComponent(since)}` +
-        `&end_date=${encodeURIComponent(until)}` +
-        `&fields=all&page_size=${pageSize}&page=${page}`;
+      const url = new URL(`${baseUrl}/v1/reporting/transactions`);
+      url.searchParams.set('start_date', since);
+      url.searchParams.set('end_date',   until);
+      url.searchParams.set('fields',     'all');
+      url.searchParams.set('page_size',  pageSize);
+      url.searchParams.set('page',       page);
 
-      const reqRpt = new paypal.http.HttpRequest(path);
-      reqRpt.headers['Content-Type'] = 'application/json';
+      const rptRes = await fetch(url.toString(), {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      });
+      const rptJson = await rptRes.json();
 
-      // El SDK añade el token por ti
-      const rptRes = await client.execute(reqRpt);
-      const txs   = rptRes.result.transaction_details || [];
+      if (!rptRes.ok) {
+        throw new Error(rptJson.error_description || JSON.stringify(rptJson));
+      }
+
+      const txs = rptJson.transaction_details || [];
       allTx.push(...txs);
 
       if (txs.length < pageSize) break;
       page++;
     }
-  } catch (err) {
-    console.error('❌ Error Reporting API con SDK:', err);
+  } catch (e) {
+    console.error('❌ Error al listar transacciones:', e);
     return res.status(500).json({ error: 'Error consultando transacciones PayPal.' });
   }
 
-  // 5) Filtrar por email y mapear
+  // 6) Filtrar por email y mapear al formato mínimo
   const output = allTx
     .filter(tx => tx.payer_info?.email_address?.toLowerCase() === email)
     .map(tx => ({
@@ -72,7 +108,7 @@ router.get('/', async (req, res) => {
       date:   tx.transaction_info.transaction_initiation_date
     }));
 
-  // 6) Enviar resultado
+  // 7) Enviar resultado
   res.json(output);
 });
 
