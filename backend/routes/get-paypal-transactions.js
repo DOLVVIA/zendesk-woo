@@ -1,17 +1,17 @@
 // backend/routes/get-paypal-transactions.js
 
 const express = require('express');
-const fetch   = require('node-fetch');      // npm install node-fetch@2
+const paypal  = require('@paypal/checkout-server-sdk');
 const router  = express.Router();
 
 router.get('/', async (req, res) => {
-  // 1) Security: validar header x-zendesk-secret
-  const incoming = req.get('x-zendesk-secret');
-  if (!incoming || incoming !== process.env.ZENDESK_SHARED_SECRET) {
+  // 1) Seguridad
+  const secret = req.get('x-zendesk-secret');
+  if (!secret || secret !== process.env.ZENDESK_SHARED_SECRET) {
     return res.status(401).json({ error: 'Unauthorized: x-zendesk-secret inválido' });
   }
 
-  // 2) Leer parámetros obligatorios
+  // 2) Lectura de parámetros
   const clientId     = req.query.paypal_client_id;
   const clientSecret = req.query.paypal_secret;
   const mode         = req.query.paypal_mode === 'sandbox' ? 'sandbox' : 'live';
@@ -23,32 +23,13 @@ router.get('/', async (req, res) => {
     });
   }
 
-  // 3) Determinar URL base
-  const baseUrl = mode === 'sandbox'
-    ? 'https://api-m.sandbox.paypal.com'
-    : 'https://api-m.paypal.com';
+  // 3) Inicializar SDK
+  const env = mode === 'sandbox'
+    ? new paypal.core.SandboxEnvironment(clientId, clientSecret)
+    : new paypal.core.LiveEnvironment(   clientId, clientSecret);
+  const client = new paypal.core.PayPalHttpClient(env);
 
-  // 4) Obtener OAuth2 access_token
-  let accessToken;
-  try {
-    const creds    = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
-    const tokenRes = await fetch(`${baseUrl}/v1/oauth2/token`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Basic ${creds}`,
-        'Content-Type': 'application/x-www-form-urlencoded'
-      },
-      body: 'grant_type=client_credentials'
-    });
-    const tokenJson = await tokenRes.json();
-    if (!tokenRes.ok) throw new Error(tokenJson.error_description || tokenJson.error);
-    accessToken = tokenJson.access_token;
-  } catch (e) {
-    console.error('❌ Error autenticando con PayPal:', e);
-    return res.status(500).json({ error: 'Error autenticando en PayPal.' });
-  }
-
-  // 5) Paginación sobre Reporting API (últimos 90 días)
+  // 4) Paginación Reporting API (últimos 90 días)
   const since   = new Date(Date.now() - 90*24*60*60*1000).toISOString();
   const until   = new Date().toISOString();
   const pageSize = 50;
@@ -57,31 +38,28 @@ router.get('/', async (req, res) => {
 
   try {
     while (true) {
-      const url = new URL(`${baseUrl}/v1/reporting/transactions`);
-      url.searchParams.set('start_date', since);
-      url.searchParams.set('end_date',   until);
-      url.searchParams.set('fields',     'all');
-      url.searchParams.set('page_size',  pageSize);
-      url.searchParams.set('page',       page);
+      const path = `/v1/reporting/transactions` +
+        `?start_date=${encodeURIComponent(since)}` +
+        `&end_date=${encodeURIComponent(until)}` +
+        `&fields=all&page_size=${pageSize}&page=${page}`;
 
-      const rptRes = await fetch(url, {
-        headers: { 'Authorization': `Bearer ${accessToken}` }
-      });
-      const rptJson = await rptRes.json();
-      if (!rptRes.ok) throw new Error(rptJson.error_description || JSON.stringify(rptJson));
+      const reqRpt = new paypal.http.HttpRequest(path);
+      reqRpt.headers['Content-Type'] = 'application/json';
 
-      const txs = rptJson.transaction_details || [];
+      // El SDK añade el token por ti
+      const rptRes = await client.execute(reqRpt);
+      const txs   = rptRes.result.transaction_details || [];
       allTx.push(...txs);
 
       if (txs.length < pageSize) break;
       page++;
     }
-  } catch (e) {
-    console.error('❌ Error al listar transacciones:', e);
+  } catch (err) {
+    console.error('❌ Error Reporting API con SDK:', err);
     return res.status(500).json({ error: 'Error consultando transacciones PayPal.' });
   }
 
-  // 6) Filtrar por email y mapear al formato mínimo
+  // 5) Filtrar por email y mapear
   const output = allTx
     .filter(tx => tx.payer_info?.email_address?.toLowerCase() === email)
     .map(tx => ({
@@ -94,7 +72,7 @@ router.get('/', async (req, res) => {
       date:   tx.transaction_info.transaction_initiation_date
     }));
 
-  // 7) Responder con el array de transacciones
+  // 6) Enviar resultado
   res.json(output);
 });
 
