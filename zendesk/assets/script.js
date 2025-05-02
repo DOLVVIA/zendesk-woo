@@ -500,41 +500,66 @@ client.on('app.registered', async () => {
 }
 // Fin Sección PayPal
 
-// Sección BBVA SEPA-TRANSFER
+// … dentro de loadPedidos(), justo tras renderStripeCharges…
+
+// ————— Sección BBVA SEPA-TRANSFER —————
 {
   const bbvaDetails = document.createElement('details');
   bbvaDetails.className = 'bbva-transfer';
-  const sumB = document.createElement('summary');
-  sumB.innerText = 'Enviar remesa SEPA Refund';
-  bbvaDetails.appendChild(sumB);
-
-  const form = document.createElement('form');
-  form.className = 'bbva-form';
-  form.innerHTML = `
-    <label>IBAN beneficiario:
-      <input name="iban" required placeholder="ES00ZZ..." />
-    </label>
-    <label>Nombre beneficiario:
-      <input name="name" required placeholder="Juan Pérez" />
-    </label>
-    <label>Importe (€):
-      <input type="number" name="amount" step="0.01" required />
-    </label>
-    <label>Concepto (opcional):
-      <input name="info" placeholder="Refund Order #${pedido.id}" />
-    </label>
-    <button type="submit">Enviar transferencia</button>
+  bbvaDetails.innerHTML = `
+    <summary>Enviar remesa SEPA Refund</summary>
+    <form class="bbva-form">
+      <p class="limit-warning">Límite por transferencia: <strong>100 €</strong></p>
+      <div class="field">
+        <label>IBAN beneficiario
+          <input name="iban" placeholder="ES00ZZ…" required />
+        </label>
+      </div>
+      <div class="field">
+        <label>Nombre beneficiario
+          <input name="name" placeholder="Juan Pérez" required />
+        </label>
+      </div>
+      <div class="field">
+        <label>Importe (€)
+          <input
+            type="number" name="amount"
+            step="0.01" max="100"
+            placeholder="0.00" required
+          />
+        </label>
+      </div>
+      <div class="field">
+        <label>Concepto (opcional)
+          <input name="info" placeholder="Refund Order #${pedido.id}" />
+        </label>
+      </div>
+      <button type="submit">Enviar transferencia</button>
+    </form>
   `;
-  bbvaDetails.appendChild(form);
   panel.appendChild(bbvaDetails);
 
-  // Manejo del submit
+  const form = bbvaDetails.querySelector('.bbva-form');
+  const amountInput = form.querySelector('input[name="amount"]');
+  const submitBtn   = form.querySelector('button[type="submit"]');
+
+  // Validar en tiempo real
+  amountInput.addEventListener('input', () => {
+    const v = parseFloat(amountInput.value);
+    submitBtn.disabled = isNaN(v) || v <= 0 || v > 100;
+  });
+
   form.addEventListener('submit', async ev => {
     ev.preventDefault();
     const iban = form.iban.value.trim();
     const name = form.name.value.trim();
     const amt  = parseFloat(form.amount.value);
     const info = form.info.value.trim();
+
+    // chequeo extra (por si el usuario manipula el DOM)
+    if (amt > 100) {
+      return alert('❌ No puedes enviar más de 100 € por transferencia.');
+    }
 
     try {
       const res = await fetch(`${API_BASE}/bbva-transfer`, {
@@ -549,10 +574,10 @@ client.on('app.registered', async () => {
       });
       const j = await res.json();
       if (j.success) {
-        alert('✅ Transferencia enviada con éxito. Ref: ' + (j.data.transactionStatus || j.data.paymentId));
+        alert('✅ Transferencia enviada con éxito. ');
         await loadPedidos();
       } else {
-        alert('❌ Error: ' + (j.error || JSON.stringify(j.details)));
+        alert(`❌ Error: ${j.message || j.error}`);
       }
     } catch (e) {
       console.error(e);
