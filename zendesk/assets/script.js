@@ -107,7 +107,7 @@ client.on('app.registered', async () => {
       const url = `${API_BASE}/get-stripe-charges?` +
         `email=${encodeURIComponent(email)}&` +
         `stripe_secret_key=${encodeURIComponent(stripe_secret_key)}`;
-        console.log('🔍 Stripe URL:', url);   // <— agrégalo
+      console.log('🔍 Stripe URL:', url);
       const res = await fetch(url, { headers: getHeaders() });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return await res.json();
@@ -156,17 +156,25 @@ client.on('app.registered', async () => {
       const refunded = (c.amount_refunded || 0) / 100;
       const isFull = c.amount_refunded === c.amount;
       const isPartial = c.amount_refunded > 0 && c.amount_refunded < c.amount;
-      let statusTxt;
-      if (isFull) statusTxt = 'Reembolsado';
-      else if (isPartial) statusTxt = `Parcial (${refunded.toFixed(2)} €)`;
-      else statusTxt = c.status === 'succeeded' ? 'Exitoso' : 'Fallido';
+      let statusTxt, badgeClass;
+      if (isFull) {
+        statusTxt = 'Reembolsado';
+        badgeClass = 'success';
+      } else if (isPartial) {
+        statusTxt = `Parcial (${refunded.toFixed(2)} €)`;
+        badgeClass = 'success';
+      } else if (c.status === 'succeeded') {
+        statusTxt = 'Exitoso';
+        badgeClass = 'success';
+      } else {
+        statusTxt = 'Fallido';
+        badgeClass = 'failed';
+      }
       const li = document.createElement('li');
       li.innerHTML = `
         <div class="payment-info">
           <span>${title} — ${amount} €</span>
-          <span class="badge ${isFull || isPartial ? 'success' : c.status==='succeeded'?'success':'failed'}">
-            ${statusTxt}
-          </span>
+          <span class="badge ${badgeClass}">${statusTxt}</span>
         </div>
       `;
       const fullBtn = document.createElement('button');
@@ -214,12 +222,33 @@ client.on('app.registered', async () => {
     container.appendChild(details);
   }
 
+  async function refundPayPal(transactionId, amount) {
+    try {
+      const payload = { transactionId, amount };
+      const res = await fetch(`${API_BASE}/refund-paypal`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify(payload)
+      });
+      const j = await res.json();
+      if (res.ok) {
+        alert('Reembolso PayPal OK');
+        await loadPedidos();
+      } else {
+        alert('Error reembolso PayPal: ' + j.error);
+      }
+    } catch (e) {
+      console.error('Error inesperado en reembolso PayPal:', e);
+      alert('Error inesperado al reembolsar PayPal');
+    }
+  }
+
   async function loadPedidos() {
     const { 'ticket.requester.email': email } = await client.get('ticket.requester.email');
     if (!email) return;
     const resultados = document.getElementById('resultados');
     resultados.innerHTML = '';
-  
+
     try {
       const { woocommerce_url, consumer_key, consumer_secret } = getWooConfig();
       const url = `${API_BASE}/buscar-pedidos?` +
@@ -229,33 +258,28 @@ client.on('app.registered', async () => {
         `consumer_secret=${encodeURIComponent(consumer_secret)}`;
       const res = await fetch(url, { headers: getHeaders() });
       const { pedidos } = await res.json();
-  
+
       if (!pedidos.length) {
         resultados.innerHTML = `<p>No hay pedidos para <strong>${email}</strong>.</p>`;
         ajustarAlto();
         return;
       }
-  
-      // Carga de listas auxiliares
+
       await loadCities();
       await loadProvincias();
-  
-      // Aquí reemplazamos todo el forEach:
+
       for (const pedido of pedidos) {
         console.log('🔍 meta_data del pedido:', pedido.meta_data);
-      
+
         const acc = document.createElement('button');
         acc.className = 'accordion';
         acc.innerText = `Pedido #${pedido.id} – ${pedido.total} € – ${pedido.status}`;
-  
+
         const panel = document.createElement('div');
         panel.className = 'panel';
-  
-        // ← Inserción FUNDAMENTAL: guardamos billing y shipping
         panel.dataset.billing  = JSON.stringify(pedido.billing  || {});
         panel.dataset.shipping = JSON.stringify(pedido.shipping || {});
-        // ← fin inserción
-  
+
         // Cabecera cliente
         const b = pedido.billing || {};
         panel.innerHTML = `
@@ -268,133 +292,7 @@ client.on('app.registered', async () => {
           <hr>
         `;
 
-        // ——— Sección Stripe ———
-const stripeSection = document.createElement('div');
-stripeSection.className = 'stripe-section';
-stripeSection.innerHTML = '<h4>Cargos Stripe</h4>';
-panel.appendChild(stripeSection);
-
-// Carga y renderiza los cargos de Stripe
-const charges = b.email
-  ? await loadStripeCharges(b.email)
-  : [];
-renderStripeCharges(charges, stripeSection, panel);
-
-// ——— Sección PayPal ———
-const paypalSection = document.createElement('div');
-paypalSection.className = 'paypal-section';
-paypalSection.innerHTML = '<h4>Transacción PayPal</h4>';
-panel.appendChild(paypalSection);
-
-// ——— EXTRAER PayPal ID de forma robusta ———
-const meta = Array.isArray(pedido.meta_data) ? pedido.meta_data : [];
-
-let captureId = null;
-let paypalOrderId = null;
-
-// 1) Buscamos cualquier key que contenga "paypal" + ("capture" o "transaction") + "id"
-for (let { key, value } of meta) {
-  const norm = key.replace(/[\s\-_]/g, '').toLowerCase();
-  if (/paypal.*capture.*id/.test(norm) || /paypal.*transaction.*id/.test(norm)) {
-    captureId = value;
-    break;
-  }
-}
-
-// 2) Si no hay captureId, miramos si tenemos el Order ID (_ppcp_paypal_order_id)
-if (!captureId) {
-  const entry = meta.find(({ key }) => {
-    const norm = key.replace(/[\s\-_]/g, '').toLowerCase();
-    return norm.includes('ppcppaypalorderid')
-        || /paypal.*order.*id/.test(norm);
-  });
-  paypalOrderId = entry?.value || null;
-}
-
-console.log(
-  '🔍 paypalOrderId:', paypalOrderId,
-  'captureId:',      captureId
-);
-
-if (!captureId && !paypalOrderId) {
-  paypalSection.innerHTML += '<p>No hay ningún ID de PayPal en meta_data.</p>';
-} else {
-  // ——— AÑADE AQUÍ LAS CREDENCIALES DE LA APP ———
-  const {
-    paypal_client_id,
-    paypal_secret,
-    paypal_mode
-  } = SETTINGS;
-
-  if (!paypal_client_id || !paypal_secret) {
-    paypalSection.innerHTML += '<p style="color:red;">Faltan credenciales de PayPal en la configuración.</p>';
-    return;
-  }
-
-  // 3) Montamos todos los parámetros
-  const params = new URLSearchParams();
-  if (captureId) {
-    params.set('paypalCaptureId', captureId);
-  } else {
-    params.set('paypalOrderId', paypalOrderId);
-  }
-  params.set('paypal_client_id', paypal_client_id);
-  params.set('paypal_secret', paypal_secret);
-  params.set('paypal_mode', paypal_mode || 'live');
-
-  try {
-    console.log(`🔗 Fetching PayPal data with ${params.toString()}`);
-    const resp = await fetch(
-      `${API_BASE}/get-paypal-transactions?${params.toString()}`,
-      { headers: getHeaders() }
-    );
-    console.log('📥 Respuesta PayPal (status):', resp.status);
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-
-    const [capture] = await resp.json();
-    console.log('📦 PayPal Capture:', capture);
-
-    // 4) Renderizamos los datos
-    paypalSection.innerHTML += `
-      <p><strong>ID:</strong> ${capture.id}</p>
-      <p><strong>Estado:</strong> ${capture.status}</p>
-      <p><strong>Importe:</strong> ${capture.amount.value} ${capture.amount.currency_code}</p>
-    `;
-
-    // 5) Botón de reembolso
-    const btn = document.createElement('button');
-    btn.innerText = 'Reembolsar PayPal';
-    btn.addEventListener('click', async () => {
-      const refundAmt = prompt('Importe a reembolsar:', capture.amount.value);
-      if (!refundAmt) return;
-      console.log(`💸 Reembolsando ${refundAmt} ${capture.amount.currency_code} para captura ${capture.id}`);
-      const r = await fetch(`${API_BASE}/refund-paypal`, {
-        method: 'POST',
-        headers: getHeaders(),
-        body: JSON.stringify({
-          transactionId: capture.id,
-          amount: refundAmt,
-          currency: capture.amount.currency_code
-        })
-      });
-      console.log('🔄 Respuesta reembolso (status):', r.status);
-      const j = await r.json();
-      if (r.ok) {
-        alert('Reembolso OK');
-        await loadPedidos();
-      } else {
-        alert('Error reembolso: ' + j.error);
-      }
-    });
-    paypalSection.appendChild(btn);
-
-  } catch (e) {
-    console.error('⚠️ Error cargando PayPal:', e);
-    paypalSection.innerHTML += '<p style="color:red;">Error cargando PayPal.</p>';
-  }
-}
-
-        // Line items
+        // Line items + botones de WooCommerce
         pedido.line_items.forEach((item, idx) => {
           panel.innerHTML += `
             <div class="producto">
@@ -406,61 +304,102 @@ if (!captureId && !paypalOrderId) {
               Precio: ${item.total} €
             </div>
           `;
-          // Botones por línea
-          const btnEdit = document.createElement('button');
-          btnEdit.className = 'btn-edit-item';
-          btnEdit.dataset.orderId     = pedido.id;
-          btnEdit.dataset.index       = idx;
-          btnEdit.dataset.productId   = item.product_id;
-          btnEdit.dataset.variationId = item.variation_id||'';
-          btnEdit.dataset.quantity    = item.quantity;
-          btnEdit.innerText = 'Editar talla/cantidad';
-          panel.appendChild(btnEdit);
-  
-          const btnDel = document.createElement('button');
-          btnDel.className = 'btn-delete-item';
-          btnDel.dataset.orderId = pedido.id;
-          btnDel.dataset.index   = idx;
-          btnDel.innerText = 'Eliminar artículo';
-          panel.appendChild(btnDel);
         });
-  
-        // Botón Añadir artículo
+
+        // Añadir artículo
         const btnAdd = document.createElement('button');
         btnAdd.className = 'btn-add-item';
         btnAdd.dataset.orderId = pedido.id;
         btnAdd.innerText = 'Añadir artículo';
         panel.appendChild(btnAdd);
-  
-        // Botón Cambiar estado
+
+        // Cambiar estado
         const btnStatus = document.createElement('button');
         btnStatus.className = 'btn-change-status';
         btnStatus.dataset.orderId = pedido.id;
         btnStatus.dataset.status  = pedido.status;
         btnStatus.innerText = 'Cambiar estado';
         panel.appendChild(btnStatus);
-  
-        // Botón Editar Dirección + formulario oculto
+
+        // Editar dirección
         const btnEditAddr = document.createElement('button');
         btnEditAddr.className = 'btn-edit-address';
         btnEditAddr.dataset.orderId = pedido.id;
         btnEditAddr.innerText = 'Editar Dirección';
         panel.appendChild(btnEditAddr);
-  
+
         const formAddr = document.createElement('form');
         formAddr.className = 'form-address';
         formAddr.dataset.orderId = pedido.id;
         formAddr.style.display = 'none';
         formAddr.innerHTML = `
           <h3>Editar Dirección Pedido #${pedido.id}</h3>
-          <!-- Campos se inyectarán al abrir -->
           <button type="button" class="btn-save-address">Guardar Dirección</button>
         `;
         panel.appendChild(formAddr);
-  
+
+        // Stripe
+        const stripeSection = document.createElement('div');
+        stripeSection.className = 'stripe-section';
+        stripeSection.innerHTML = '<h4>Cargos Stripe</h4>';
+        panel.appendChild(stripeSection);
+        const charges = b.email ? await loadStripeCharges(b.email) : [];
+        renderStripeCharges(charges, stripeSection, panel);
+
+        // PayPal por email
+        const paypalSection = document.createElement('div');
+        paypalSection.className = 'paypal-section';
+        paypalSection.innerHTML = '<h4>Transacciones PayPal</h4>';
+        panel.appendChild(paypalSection);
+        try {
+          const resp = await fetch(
+            `${API_BASE}/search-paypal-transactions?email=${encodeURIComponent(b.email||'')}`,
+            { headers: getHeaders() }
+          );
+          if (resp.status === 404) {
+            paypalSection.innerHTML += '<p>No hay transacciones PayPal para este cliente.</p>';
+          } else if (!resp.ok) {
+            throw new Error(`HTTP ${resp.status}`);
+          } else {
+            const txs = await resp.json();
+            const details = document.createElement('details');
+            details.innerHTML = `<summary>Ver transacciones (${txs.length})</summary>`;
+            const ul = document.createElement('ul');
+            ul.className = 'paypal-payments';
+            txs.forEach(tx => {
+              const li = document.createElement('li');
+              const amt = `${tx.amount.value} ${tx.amount.currency_code||'EUR'}`;
+              li.innerHTML = `
+                <div class="payment-info">
+                  <span>${tx.id} — ${amt}</span>
+                  <span class="badge success">${tx.status}</span>
+                </div>
+              `;
+              const btnFull = document.createElement('button');
+              btnFull.innerText = 'Reembolso completo';
+              btnFull.addEventListener('click', () => refundPayPal(tx.id, tx.amount.value));
+              const btnPart = document.createElement('button');
+              btnPart.innerText = 'Reembolso parcial';
+              btnPart.addEventListener('click', async () => {
+                const val = prompt('Importe parcial a reembolsar:', tx.amount.value);
+                if (val) refundPayPal(tx.id, val);
+              });
+              const wrap = document.createElement('div');
+              wrap.className = 'refund-buttons';
+              wrap.append(btnFull, btnPart);
+              li.appendChild(wrap);
+              ul.appendChild(li);
+            });
+            details.appendChild(ul);
+            paypalSection.appendChild(details);
+          }
+        } catch (e) {
+          console.error('⚠️ Error cargando PayPal:', e);
+          paypalSection.innerHTML += '<p style="color:red;">Error cargando PayPal.</p>';
+        }
+
         resultados.appendChild(acc);
         resultados.appendChild(panel);
-  
         acc.addEventListener('click', () => {
           const open = panel.style.display === 'block';
           panel.style.display = open ? 'none' : 'block';
@@ -468,9 +407,9 @@ if (!captureId && !paypalOrderId) {
           ajustarAlto();
         });
       }
-  
+
       ajustarAlto();
-  
+
     } catch (e) {
       console.error(e);
       document.getElementById('resultados').innerHTML =
@@ -478,283 +417,220 @@ if (!captureId && !paypalOrderId) {
       ajustarAlto();
     }
   }
-  
 
-  // Global click listener
+  // Global click listener: control WooCommerce buttons
   document.addEventListener('click', async e => {
     const { woocommerce_url, consumer_key, consumer_secret } = getWooConfig();
 
-  // --- Reemplazar este bloque completo ---
-  // 1) Cambiar estado
-  if (e.target.matches('.btn-change-status')) {
-    const orderId = e.target.dataset.orderId;
-    const currentStatus = e.target.dataset.status;
-
-    // Si ya existe el form, sólo alternamos visibilidad
-    let form = e.target.parentNode.querySelector('.status-form');
-    if (!form) {
-      // 1.1) Crear el contenedor del formulario
-      form = document.createElement('div');
-      form.className = 'status-form';
-      form.style.margin = '8px 0';
-
-      // 1.2) Generar el <select> con todos los estados
-      const sel = document.createElement('select');
-      orderStatuses.forEach(s => {
-        const opt = document.createElement('option');
-        opt.value = s.slug;
-        opt.text  = s.name;
-        if (s.slug === currentStatus) opt.selected = true;
-        sel.appendChild(opt);
-      });
-      form.appendChild(sel);
-
-      // 1.3) Botón Aceptar
-      const btnOk = document.createElement('button');
-      btnOk.innerText = 'Aceptar';
-      btnOk.style.margin = '0 4px';
-      btnOk.addEventListener('click', async () => {
-        const newStatus = sel.value;
-        const params = new URLSearchParams({
-          order_id: orderId,
-          status:   newStatus,
-          woocommerce_url,
-          consumer_key,
-          consumer_secret
+    // Cambiar estado
+    if (e.target.matches('.btn-change-status')) {
+      const orderId = e.target.dataset.orderId;
+      const currentStatus = e.target.dataset.status;
+      let form = e.target.parentNode.querySelector('.status-form');
+      if (!form) {
+        form = document.createElement('div');
+        form.className = 'status-form';
+        form.style.margin = '8px 0';
+        const sel = document.createElement('select');
+        orderStatuses.forEach(s => {
+          const opt = document.createElement('option');
+          opt.value = s.slug;
+          opt.text = s.name;
+          if (s.slug === currentStatus) opt.selected = true;
+          sel.appendChild(opt);
         });
-        const res = await fetch(`${API_BASE}/cambiar-estado?${params}`, {
-          method: 'PUT',
-          headers: getHeaders()
+        form.appendChild(sel);
+        const btnOk = document.createElement('button');
+        btnOk.innerText = 'Aceptar';
+        btnOk.style.margin = '0 4px';
+        btnOk.addEventListener('click', async () => {
+          const newStatus = sel.value;
+          const params = new URLSearchParams({
+            order_id: orderId,
+            status:   newStatus,
+            woocommerce_url,
+            consumer_key,
+            consumer_secret
+          });
+          const res = await fetch(`${API_BASE}/cambiar-estado?${params}`, {
+            method: 'PUT',
+            headers: getHeaders()
+          });
+          if (res.ok) {
+            showMessage(form.parentNode, 'Estado actualizado');
+            await loadPedidos();
+          } else {
+            const err = await res.json();
+            showMessage(form.parentNode, `Error: ${err.error}`, 'error');
+          }
         });
-        if (res.ok) {
-          showMessage(form.parentNode, 'Estado actualizado');
-          await loadPedidos();
-        } else {
-          const err = await res.json();
-          showMessage(form.parentNode, `Error: ${err.error}`, 'error');
-        }
-      });
-      form.appendChild(btnOk);
+        form.appendChild(btnOk);
+        const btnCancel = document.createElement('button');
+        btnCancel.innerText = 'Cancelar';
+        btnCancel.addEventListener('click', () => form.style.display = 'none');
+        form.appendChild(btnCancel);
+        e.target.parentNode.appendChild(form);
+      }
+      form.style.display = form.style.display === 'none' ? 'block' : 'none';
+      return;
+    }
 
-      // 1.4) Botón Cancelar
-      const btnCancel = document.createElement('button');
-      btnCancel.innerText = 'Cancelar';
-      btnCancel.addEventListener('click', () => {
+    // Editar dirección
+    if (e.target.matches('.btn-edit-address')) {
+      const orderId = e.target.dataset.orderId;
+      const panel   = e.target.parentNode;
+      const billing = JSON.parse(panel.dataset.billing);
+      const shipping= JSON.parse(panel.dataset.shipping);
+      let form = panel.querySelector('.form-address');
+      if (!form._initialized) {
+        form._initialized = true;
+        form.innerHTML = '';
+        form.dataset.orderId = orderId;
         form.style.display = 'none';
-      });
-      form.appendChild(btnCancel);
-
-      // 1.5) Añadir al panel
-      e.target.parentNode.appendChild(form);
+        function createSection(type, data) {
+          const div = document.createElement('div');
+          const title = document.createElement('h4');
+          title.innerText = type === 'billing' ? 'Facturación' : 'Envío';
+          div.appendChild(title);
+          [['first_name','Nombre'],['last_name','Apellidos'],['address_1','Dirección 1'],['address_2','Dirección 2'],['postcode','Código postal']].forEach(([k,label]) => {
+            const lbl = document.createElement('label');
+            lbl.innerText = label;
+            const inp = document.createElement('input');
+            inp.name = `${type}_${k}`;
+            inp.value = data[k] || '';
+            lbl.appendChild(inp);
+            div.appendChild(lbl);
+          });
+          const lblCity = document.createElement('label');
+          lblCity.innerText = 'Ciudad';
+          const selCity = document.createElement('select');
+          selCity.name = `${type}_city`;
+          citiesList.forEach(c => {
+            const o = document.createElement('option');
+            o.value = o.text = c;
+            if (c === data.city) o.selected = true;
+            selCity.appendChild(o);
+          });
+          lblCity.appendChild(selCity);
+          div.appendChild(lblCity);
+          const lblProv = document.createElement('label');
+          lblProv.innerText = 'Provincia';
+          const selProv = document.createElement('select');
+          selProv.name = `${type}_state`;
+          provincesList.forEach(s => {
+            const o = document.createElement('option');
+            o.value = o.text = s;
+            if (s === data.state) o.selected = true;
+            selProv.appendChild(o);
+          });
+          lblProv.appendChild(selProv);
+          div.appendChild(lblProv);
+          return div;
+        }
+        form.appendChild(createSection('billing', billing));
+        form.appendChild(createSection('shipping', shipping));
+        const btnSave = document.createElement('button');
+        btnSave.type = 'button';
+        btnSave.className = 'btn-save-address';
+        btnSave.innerText = 'Aceptar';
+        form.appendChild(btnSave);
+        const btnCancel = document.createElement('button');
+        btnCancel.type = 'button';
+        btnCancel.className = 'btn-cancel-address';
+        btnCancel.innerText = 'Cancelar';
+        btnCancel.style.margin = '0 4px';
+        btnCancel.addEventListener('click', () => form.style.display = 'none');
+        form.appendChild(btnCancel);
+      }
+      form.style.display = form.style.display === 'none' ? 'block' : 'none';
+      return;
     }
 
-    // Mostrar/ocultar el form
-    form.style.display = form.style.display === 'none' ? 'block' : 'none';
-    return;
-  }
-  // --- fin del reemplazo ---
-
-   // 2) Editar dirección — abre un formulario con billing+shipping precargados
-if (e.target.matches('.btn-edit-address')) {
-  const orderId = e.target.dataset.orderId;
-  const panel   = e.target.parentNode;
-  const billing = JSON.parse(panel.dataset.billing);
-  const shipping= JSON.parse(panel.dataset.shipping);
-
-  let form = panel.querySelector('.form-address');
-  if (!form._initialized) {
-    form._initialized = true;
-    form.innerHTML = '';
-    form.dataset.orderId = orderId;
-    form.style.display = 'none';
-
-    // Helper para crear secciones
-    function createSection(type, data) {
-      const div = document.createElement('div');
-      const title = document.createElement('h4');
-      title.innerText = type === 'billing' ? 'Facturación' : 'Envío';
-      div.appendChild(title);
-
-      // Campos de texto
-      [
-        ['first_name','Nombre'],
-        ['last_name','Apellidos'],
-        ['address_1','Dirección 1'],
-        ['address_2','Dirección 2'],
-        ['postcode','Código postal']
-      ].forEach(([key,labelText]) => {
-        const label = document.createElement('label');
-        label.innerText = labelText;
-        const inp = document.createElement('input');
-        inp.name  = `${type}_${key}`;
-        inp.value = data[key] || '';
-        label.appendChild(inp);
-        div.appendChild(label);
+    // Guardar dirección
+    if (e.target.matches('.btn-save-address')) {
+      const form = e.target.closest('.form-address');
+      const orderId = form.dataset.orderId;
+      const billing = {
+        first_name: form.querySelector('input[name="billing_first_name"]').value,
+        last_name:  form.querySelector('input[name="billing_last_name"]').value,
+        address_1:  form.querySelector('input[name="billing_address_1"]').value,
+        address_2:  form.querySelector('input[name="billing_address_2"]').value,
+        postcode:   form.querySelector('input[name="billing_postcode"]').value,
+        city:       form.querySelector('select[name="billing_city"]').value,
+        state:      form.querySelector('select[name="billing_state"]').value
+      };
+      const shipping = {
+        first_name: form.querySelector('input[name="shipping_first_name"]').value,
+        last_name:  form.querySelector('input[name="shipping_last_name"]').value,
+        address_1:  form.querySelector('input[name="shipping_address_1"]').value,
+        address_2:  form.querySelector('input[name="shipping_address_2"]').value,
+        postcode:   form.querySelector('input[name="shipping_postcode"]').value,
+        city:       form.querySelector('select[name="shipping_city"]').value,
+        state:      form.querySelector('select[name="shipping_state"]').value
+      };
+      const params = new URLSearchParams({
+        order_id: orderId,
+        billing: encodeURIComponent(JSON.stringify(billing)),
+        shipping: encodeURIComponent(JSON.stringify(shipping)),
+        woocommerce_url,
+        consumer_key,
+        consumer_secret
       });
-
-      // Ciudad (select)
-      const lblCity = document.createElement('label');
-      lblCity.innerText = 'Ciudad';
-      const selCity = document.createElement('select');
-      selCity.name = `${type}_city`;
-      citiesList.forEach(c => {
-        const o = document.createElement('option');
-        o.value = o.text = c;
-        if (c === data.city) o.selected = true;
-        selCity.appendChild(o);
-      });
-      lblCity.appendChild(selCity);
-      div.appendChild(lblCity);
-
-      // Provincia (select)
-      const lblProv = document.createElement('label');
-      lblProv.innerText = 'Provincia';
-      const selProv = document.createElement('select');
-      selProv.name = `${type}_state`;
-      provincesList.forEach(s => {
-        const o = document.createElement('option');
-        o.value = o.text = s;
-        if (s === data.state) o.selected = true;
-        selProv.appendChild(o);
-      });
-      lblProv.appendChild(selProv);
-      div.appendChild(lblProv);
-
-      return div;
+      const res = await fetch(`${API_BASE}/editar-direccion?${params}`, { method: 'PUT', headers: getHeaders() });
+      if (res.ok) {
+        showMessage(form.parentNode, 'Dirección actualizada');
+        await loadPedidos();
+      } else {
+        const err = await res.json();
+        showMessage(form.parentNode, `Error: ${err.error}`, 'error');
+      }
+      return;
     }
 
-    // Añadimos las dos secciones
-    form.appendChild(createSection('billing',  billing));
-    form.appendChild(createSection('shipping', shipping));
-
-    // Botones Aceptar / Cancelar
-    const btnSave = document.createElement('button');
-    btnSave.type = 'button';
-    btnSave.className = 'btn-save-address';
-    btnSave.innerText = 'Aceptar';
-    form.appendChild(btnSave);
-
-    const btnCancel = document.createElement('button');
-    btnCancel.type = 'button';
-    btnCancel.className = 'btn-cancel-address';
-    btnCancel.innerText = 'Cancelar';
-    btnCancel.style.margin = '0 4px';
-    btnCancel.addEventListener('click', () => {
-      form.style.display = 'none';
-    });
-    form.appendChild(btnCancel);
-  }
-
-  form.style.display = form.style.display === 'none' ? 'block' : 'none';
-  return;
-}
-
-// 3) Guardar dirección — envía billing + shipping al backend
-if (e.target.matches('.btn-save-address')) {
-  const form = e.target.closest('.form-address');
-  const orderId = form.dataset.orderId;
-
-  const billing = {
-    first_name: form.querySelector('input[name="billing_first_name"]').value,
-    last_name:  form.querySelector('input[name="billing_last_name"]').value,
-    address_1:  form.querySelector('input[name="billing_address_1"]').value,
-    address_2:  form.querySelector('input[name="billing_address_2"]').value,
-    postcode:   form.querySelector('input[name="billing_postcode"]').value,
-    city:       form.querySelector('select[name="billing_city"]').value,
-    state:      form.querySelector('select[name="billing_state"]').value
-  };
-
-  const shipping = {
-    first_name: form.querySelector('input[name="shipping_first_name"]').value,
-    last_name:  form.querySelector('input[name="shipping_last_name"]').value,
-    address_1:  form.querySelector('input[name="shipping_address_1"]').value,
-    address_2:  form.querySelector('input[name="shipping_address_2"]').value,
-    postcode:   form.querySelector('input[name="shipping_postcode"]').value,
-    city:       form.querySelector('select[name="shipping_city"]').value,
-    state:      form.querySelector('select[name="shipping_state"]').value
-  };
-
-  const params = new URLSearchParams({
-    order_id: orderId,
-    billing:  encodeURIComponent(JSON.stringify(billing)),
-    shipping: encodeURIComponent(JSON.stringify(shipping)),
-    woocommerce_url,
-    consumer_key,
-    consumer_secret
-  });
-
-  const res = await fetch(
-    `${API_BASE}/editar-direccion?${params}`,
-    { method: 'PUT', headers: getHeaders() }
-  );
-
-  if (res.ok) {
-    showMessage(form.parentNode, 'Dirección actualizada');
-    await loadPedidos();
-  } else {
-    const err = await res.json();
-    showMessage(form.parentNode, `Error: ${err.error}`, 'error');
-  }
-
-  return;
-}
-
-
-    // 4) Eliminar artículo (con cambio previo a pendiente)
+    // Eliminar artículo
     if (e.target.matches('.btn-delete-item')) {
       const orderId  = e.target.dataset.orderId;
       const lineIndex = e.target.dataset.index;
-
-      // 4.1) Crear / reusar el form de confirmación
       let form = e.target.parentNode.querySelector('.delete-item-form');
       if (!form) {
         form = document.createElement('div');
         form.className = 'delete-item-form';
         form.style.margin = '8px 0';
-
-        // Mensaje informativo
         const info = document.createElement('p');
-        info.innerText = 
-          'Antes de eliminar este artículo, el pedido pasará a "Pendiente de pago". ¿Continuar?';
+        info.innerText = 'Antes de eliminar este artículo, el pedido pasará a "Pendiente de pago". ¿Continuar?';
         form.appendChild(info);
-
-        // Botón Confirmar
         const btnConfirm = document.createElement('button');
         btnConfirm.innerText = 'Confirmar';
         btnConfirm.style.margin = '0 4px';
         btnConfirm.addEventListener('click', async () => {
           const qc = getWooConfig();
-
-          // 1) Cambiar estado a pending
           const paramsStatus = new URLSearchParams({
             order_id: orderId,
-            status:   'pending',
+            status: 'pending',
             woocommerce_url: qc.woocommerce_url,
-            consumer_key:    qc.consumer_key,
+            consumer_key: qc.consumer_key,
             consumer_secret: qc.consumer_secret
           });
-          const resStatus = await fetch(
-            `${API_BASE}/cambiar-estado?${paramsStatus}`, 
-            { method: 'PUT', headers: getHeaders() }
-          );
+          const resStatus = await fetch(`${API_BASE}/cambiar-estado?${paramsStatus}`, {
+            method: 'PUT',
+            headers: getHeaders()
+          });
           if (!resStatus.ok) {
             const err = await resStatus.json();
             showMessage(form.parentNode, `Error al cambiar estado: ${err.error}`, 'error');
             return;
           }
-
-          // 2) Eliminar el ítem
           const paramsDel = new URLSearchParams({
-            order_id:    orderId,
-            line_index:  lineIndex,
+            order_id: orderId,
+            line_index: lineIndex,
             woocommerce_url: qc.woocommerce_url,
-            consumer_key:    qc.consumer_key,
+            consumer_key: qc.consumer_key,
             consumer_secret: qc.consumer_secret
           });
-          const resDel = await fetch(
-            `${API_BASE}/eliminar-item?${paramsDel}`,
-            { method: 'DELETE', headers: getHeaders() }
-          );
+          const resDel = await fetch(`${API_BASE}/eliminar-item?${paramsDel}`, {
+            method: 'DELETE',
+            headers: getHeaders()
+          });
           if (resDel.ok) {
             showMessage(form.parentNode, 'Artículo eliminado');
             await loadPedidos();
@@ -764,177 +640,137 @@ if (e.target.matches('.btn-save-address')) {
           }
         });
         form.appendChild(btnConfirm);
-
-        // Botón Cancelar
         const btnCancel = document.createElement('button');
         btnCancel.innerText = 'Cancelar';
-        btnCancel.addEventListener('click', () => {
-          form.style.display = 'none';
-        });
+        btnCancel.addEventListener('click', () => form.style.display = 'none');
         form.appendChild(btnCancel);
-
-        // Añadir al DOM
         e.target.parentNode.appendChild(form);
       }
-
-      // 4.2) Mostrar/ocultar el form
       form.style.display = form.style.display === 'none' ? 'block' : 'none';
       return;
     }
 
-
-// 5) Editar talla/cantidad (pending → delete → add)
-if (e.target.matches('.btn-edit-item')) {
-  const orderId    = e.target.dataset.orderId;
-  const lineIndex  = e.target.dataset.index;
-  const productId  = e.target.dataset.productId;
-  const oldVarId   = e.target.dataset.variationId;
-  const oldQuantity= e.target.dataset.quantity;
-
-  // 5.1) Crear / reusar formulario
-  let form = e.target.parentNode.querySelector('.edit-item-form');
-  if (!form) {
-    form = document.createElement('div');
-    form.className = 'edit-item-form';
-    form.style.margin = '8px 0';
-
-    // 5.2) Select de variaciones
-    const selVar = document.createElement('select');
-    selVar.innerHTML = `<option value="">— Selecciona variación —</option>`;
-    form.appendChild(selVar);
-
-    // 5.3) Input de cantidad
-    const qtyInput = document.createElement('input');
-    qtyInput.type = 'number';
-    qtyInput.min  = '1';
-    qtyInput.value= oldQuantity;
-    qtyInput.placeholder = 'Cantidad';
-    qtyInput.style.margin = '0 4px';
-    form.appendChild(qtyInput);
-
-    // 5.4) Botones Aceptar / Cancelar
-    const btnOk = document.createElement('button');
-    btnOk.innerText = 'Aceptar';
-    btnOk.disabled = true;
-    form.appendChild(btnOk);
-
-    const btnCancel = document.createElement('button');
-    btnCancel.innerText = 'Cancelar';
-    btnCancel.style.margin = '0 4px';
-    btnCancel.addEventListener('click', () => form.style.display = 'none');
-    form.appendChild(btnCancel);
-
-    // 5.5) Habilitar Aceptar sólo si hay variación y cantidad
-    selVar.addEventListener('change', () => {
-      btnOk.disabled = !(selVar.value && qtyInput.value);
-    });
-    qtyInput.addEventListener('input', () => {
-      btnOk.disabled = !(selVar.value && qtyInput.value);
-    });
-
-    // 5.6) Cargar variaciones del producto
-    (async () => {
-      const { woocommerce_url, consumer_key, consumer_secret } = getWooConfig();
-      const paramsVar = new URLSearchParams({
-        product_id:  productId,
-        woocommerce_url, consumer_key, consumer_secret
-      });
-      const resVar = await fetch(`${API_BASE}/get-variaciones?${paramsVar}`, {
-        headers: getHeaders()
-      });
-      const vars = await resVar.json();
-      vars.forEach(v => {
-        const opt = document.createElement('option');
-        opt.value = v.id;
-        opt.text  = v.attributes.map(a => `${a.name}: ${a.option}`).join(', ');
-        if (v.id == oldVarId) opt.selected = true;
-        selVar.appendChild(opt);
-      });
-      // Si al cargar ya están ambos, habilita Ok
-      if (selVar.value && qtyInput.value) btnOk.disabled = false;
-    })();
-
-    // 5.7) Al hacer click en Aceptar, secuencia pending → delete → add
-    btnOk.addEventListener('click', async () => {
-      const newVarId = selVar.value;
-      const newQty   = qtyInput.value;
-      const qc       = getWooConfig();
-
-      // A) Cambiar estado a pending
-      let p1 = new URLSearchParams({
-        order_id:       orderId,
-        status:         'pending',
-        woocommerce_url: qc.woocommerce_url,
-        consumer_key:    qc.consumer_key,
-        consumer_secret: qc.consumer_secret
-      });
-      const r1 = await fetch(`${API_BASE}/cambiar-estado?${p1}`, {
-        method: 'PUT', headers: getHeaders()
-      });
-      if (!r1.ok) {
-        const err = await r1.json();
-        return showMessage(form.parentNode, `Error estado: ${err.error}`, 'error');
+    // Editar talla/cantidad
+    if (e.target.matches('.btn-edit-item')) {
+      const orderId    = e.target.dataset.orderId;
+      const lineIndex  = e.target.dataset.index;
+      const productId  = e.target.dataset.productId;
+      const oldVarId   = e.target.dataset.variationId;
+      const oldQuantity= e.target.dataset.quantity;
+      let form = e.target.parentNode.querySelector('.edit-item-form');
+      if (!form) {
+        form = document.createElement('div');
+        form.className = 'edit-item-form';
+        form.style.margin = '8px 0';
+        const selVar = document.createElement('select');
+        selVar.innerHTML = `<option value="">— Selecciona variación —</option>`;
+        form.appendChild(selVar);
+        const qtyInput = document.createElement('input');
+        qtyInput.type = 'number';
+        qtyInput.min  = '1';
+        qtyInput.value= oldQuantity;
+        qtyInput.placeholder = 'Cantidad';
+        qtyInput.style.margin = '0 4px';
+        form.appendChild(qtyInput);
+        const btnOk = document.createElement('button');
+        btnOk.innerText = 'Aceptar';
+        btnOk.disabled = true;
+        form.appendChild(btnOk);
+        const btnCancel = document.createElement('button');
+        btnCancel.innerText = 'Cancelar';
+        btnCancel.style.margin = '0 4px';
+        btnCancel.addEventListener('click', () => form.style.display = 'none');
+        form.appendChild(btnCancel);
+        selVar.addEventListener('change', () => {
+          btnOk.disabled = !(selVar.value && qtyInput.value);
+        });
+        qtyInput.addEventListener('input', () => {
+          btnOk.disabled = !(selVar.value && qtyInput.value);
+        });
+        (async () => {
+          const { woocommerce_url, consumer_key, consumer_secret } = getWooConfig();
+          const paramsVar = new URLSearchParams({
+            product_id:  productId,
+            woocommerce_url, consumer_key, consumer_secret
+          });
+          const resVar = await fetch(`${API_BASE}/get-variaciones?${paramsVar}`, {
+            headers: getHeaders()
+          });
+          const vars = await resVar.json();
+          vars.forEach(v => {
+            const opt = document.createElement('option');
+            opt.value = v.id;
+            opt.text  = v.attributes.map(a => `${a.name}: ${a.option}`).join(', ');
+            if (v.id == oldVarId) opt.selected = true;
+            selVar.appendChild(opt);
+          });
+          if (selVar.value && qtyInput.value) btnOk.disabled = false;
+        })();
+        btnOk.addEventListener('click', async () => {
+          const newVarId = selVar.value;
+          const newQty   = qtyInput.value;
+          const qc       = getWooConfig();
+          const p1 = new URLSearchParams({
+            order_id: orderId,
+            status: 'pending',
+            woocommerce_url: qc.woocommerce_url,
+            consumer_key: qc.consumer_key,
+            consumer_secret: qc.consumer_secret
+          });
+          const r1 = await fetch(`${API_BASE}/cambiar-estado?${p1}`, {
+            method: 'PUT', headers: getHeaders()
+          });
+          if (!r1.ok) {
+            const err = await r1.json();
+            return showMessage(form.parentNode, `Error estado: ${err.error}`, 'error');
+          }
+          const p2 = new URLSearchParams({
+            order_id: orderId,
+            line_index: lineIndex,
+            woocommerce_url: qc.woocommerce_url,
+            consumer_key: qc.consumer_key,
+            consumer_secret: qc.consumer_secret
+          });
+          const r2 = await fetch(`${API_BASE}/eliminar-item?${p2}`, {
+            method: 'DELETE', headers: getHeaders()
+          });
+          if (!r2.ok) {
+            const err = await r2.json();
+            return showMessage(form.parentNode, `Error eliminar: ${err.error}`, 'error');
+          }
+          const payload = {
+            ...qc,
+            product_id:   Number(productId),
+            variation_id: Number(newVarId),
+            quantity:     Number(newQty)
+          };
+          const r3 = await fetch(`${API_BASE}/anadir-item?order_id=${orderId}`, {
+            method: 'POST',
+            headers: getHeaders(),
+            body: JSON.stringify(payload)
+          });
+          if (r3.ok) {
+            showMessage(form.parentNode, 'Artículo actualizado');
+            await loadPedidos();
+          } else {
+            const err = await r3.json();
+            showMessage(form.parentNode, `Error añadir: ${err.error}`, 'error');
+          }
+        });
+        e.target.parentNode.appendChild(form);
       }
+      form.style.display = form.style.display === 'none' ? 'block' : 'none';
+      return;
+    }
 
-      // B) Eliminar línea original
-      let p2 = new URLSearchParams({
-        order_id:        orderId,
-        line_index:      lineIndex,
-        woocommerce_url: qc.woocommerce_url,
-        consumer_key:    qc.consumer_key,
-        consumer_secret: qc.consumer_secret
-      });
-      const r2 = await fetch(`${API_BASE}/eliminar-item?${p2}`, {
-        method: 'DELETE', headers: getHeaders()
-      });
-      if (!r2.ok) {
-        const err = await r2.json();
-        return showMessage(form.parentNode, `Error eliminar: ${err.error}`, 'error');
-      }
-
-      // C) Añadir línea nueva
-      const payload = {
-        ...qc,
-        product_id:   Number(productId),
-        variation_id: Number(newVarId),
-        quantity:     Number(newQty)
-      };
-      const r3 = await fetch(`${API_BASE}/anadir-item?order_id=${orderId}`, {
-        method: 'POST',
-        headers: getHeaders(),
-        body: JSON.stringify(payload)
-      });
-      if (r3.ok) {
-        showMessage(form.parentNode, 'Artículo actualizado');
-        await loadPedidos();
-      } else {
-        const err = await r3.json();
-        showMessage(form.parentNode, `Error añadir: ${err.error}`, 'error');
-      }
-    });
-
-    // Insertar el form en el DOM
-    e.target.parentNode.appendChild(form);
-  }
-
-  // Mostrar/ocultar
-  form.style.display = form.style.display === 'none' ? 'block' : 'none';
-  return;
-}
-
-
-    // 6) Añadir artículo (nuevo flujo con selects y variaciones)
+    // Añadir artículo
     if (e.target.matches('.btn-add-item')) {
       const orderId = e.target.dataset.orderId;
-
-      // 1) Crear / reusar formulario
       let form = e.target.parentNode.querySelector('.add-item-form');
       if (!form) {
         form = document.createElement('div');
         form.className = 'add-item-form';
         form.style.margin = '8px 0';
-
-        // 2) Selector de productos
         const selProd = document.createElement('select');
         selProd.innerHTML = `<option value="">— Selecciona producto —</option>`;
         productsList.forEach(p => {
@@ -944,37 +780,25 @@ if (e.target.matches('.btn-edit-item')) {
           selProd.appendChild(opt);
         });
         form.appendChild(selProd);
-
-        // 3) Selector de variaciones (oculto inicialmente)
         const selVar = document.createElement('select');
         selVar.style.display = 'none';
         selVar.innerHTML = `<option value="">— Selecciona variación —</option>`;
         form.appendChild(selVar);
-
-        // 4) Input de cantidad
         const qtyInput = document.createElement('input');
         qtyInput.type = 'number';
         qtyInput.min = '1';
         qtyInput.placeholder = 'Cantidad';
         qtyInput.style.margin = '0 4px';
         form.appendChild(qtyInput);
-
-        // 5) Botón Aceptar
         const btnOk = document.createElement('button');
         btnOk.innerText = 'Aceptar';
-        btnOk.disabled = true; // hasta que el usuario seleccione un producto
+        btnOk.disabled = true;
         form.appendChild(btnOk);
-
-        // 6) Botón Cancelar
         const btnCancel = document.createElement('button');
         btnCancel.innerText = 'Cancelar';
         btnCancel.style.margin = '0 4px';
-        btnCancel.addEventListener('click', () => {
-          form.style.display = 'none';
-        });
+        btnCancel.addEventListener('click', () => form.style.display = 'none');
         form.appendChild(btnCancel);
-
-        // 7) Al cambiar producto, cargar variaciones
         selProd.addEventListener('change', async () => {
           const prodId = selProd.value;
           selVar.innerHTML = `<option value="">— Selecciona variación —</option>`;
@@ -983,7 +807,6 @@ if (e.target.matches('.btn-edit-item')) {
             btnOk.disabled = true;
             return;
           }
-          // Llamada a get-variaciones
           const qc = getWooConfig();
           const paramsVar = new URLSearchParams({
             product_id:   prodId,
@@ -997,10 +820,7 @@ if (e.target.matches('.btn-edit-item')) {
             vars.forEach(v => {
               const opt = document.createElement('option');
               opt.value = v.id;
-              // Mostrar p.ej. "Talla: M, Color: Rojo"
-              opt.text = v.attributes
-                .map(a => `${a.name}: ${a.option}`)
-                .join(', ');
+              opt.text = v.attributes.map(a => `${a.name}: ${a.option}`).join(', ');
               selVar.appendChild(opt);
             });
             selVar.style.display = '';
@@ -1009,24 +829,18 @@ if (e.target.matches('.btn-edit-item')) {
           }
           btnOk.disabled = false;
         });
-
-        // 8) Al pulsar Aceptar, envío al backend
         btnOk.addEventListener('click', async () => {
           const prodId = selProd.value;
           const varId  = selVar.style.display==='none' ? null : selVar.value;
           const qty    = qtyInput.value;
-          if (!prodId || !qty || (selVar.style.display!== 'none' && !varId)) {
+          if (!prodId || !qty || (selVar.style.display!=='none' && !varId)) {
             return alert('Completa todos los campos.');
           }
-          const body = {
+          const payload = {
+            ...getWooConfig(),
             product_id: Number(prodId),
             quantity:   Number(qty),
             ...(varId ? { variation_id: Number(varId) } : {})
-          };
-          // Incluir credenciales en el body, que tu endpoint espera JSON
-          const payload = {
-            ...getWooConfig(),
-            ...body
           };
           const res = await fetch(`${API_BASE}/anadir-item?order_id=${orderId}`, {
             method: 'POST',
@@ -1041,16 +855,11 @@ if (e.target.matches('.btn-edit-item')) {
             showMessage(form.parentNode, `Error: ${err.error}`, 'error');
           }
         });
-
-        // Añadir el formulario al panel
         e.target.parentNode.appendChild(form);
       }
-
-      // 9) Mostrar/ocultar el form
       form.style.display = form.style.display === 'none' ? 'block' : 'none';
       return;
     }
-
   });
 
   // Initialize
