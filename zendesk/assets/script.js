@@ -500,7 +500,67 @@ client.on('app.registered', async () => {
 }
 // Fin Sección PayPal
 
-// … aquí continúa tu código normal: resultados.appendChild(acc), etc. …
+// Sección BBVA SEPA-TRANSFER
+{
+  const bbvaDetails = document.createElement('details');
+  bbvaDetails.className = 'bbva-transfer';
+  const sumB = document.createElement('summary');
+  sumB.innerText = 'Enviar remesa SEPA Refund';
+  bbvaDetails.appendChild(sumB);
+
+  const form = document.createElement('form');
+  form.className = 'bbva-form';
+  form.innerHTML = `
+    <label>IBAN beneficiario:
+      <input name="iban" required placeholder="ES00ZZ..." />
+    </label>
+    <label>Nombre beneficiario:
+      <input name="name" required placeholder="Juan Pérez" />
+    </label>
+    <label>Importe (€):
+      <input type="number" name="amount" step="0.01" required />
+    </label>
+    <label>Concepto (opcional):
+      <input name="info" placeholder="Refund Order #${pedido.id}" />
+    </label>
+    <button type="submit">Enviar transferencia</button>
+  `;
+  bbvaDetails.appendChild(form);
+  panel.appendChild(bbvaDetails);
+
+  // Manejo del submit
+  form.addEventListener('submit', async ev => {
+    ev.preventDefault();
+    const iban = form.iban.value.trim();
+    const name = form.name.value.trim();
+    const amt  = parseFloat(form.amount.value);
+    const info = form.info.value.trim();
+
+    try {
+      const res = await fetch(`${API_BASE}/bbva-transfer`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({
+          creditorIban:   iban,
+          creditorName:   name,
+          amount:         amt,
+          remittanceInfo: info
+        })
+      });
+      const j = await res.json();
+      if (j.success) {
+        alert('✅ Transferencia enviada con éxito. Ref: ' + (j.data.transactionStatus || j.data.paymentId));
+        await loadPedidos();
+      } else {
+        alert('❌ Error: ' + (j.error || JSON.stringify(j.details)));
+      }
+    } catch (e) {
+      console.error(e);
+      alert('❌ Error inesperado al enviar transferencia');
+    }
+  });
+}
+
 
         resultados.appendChild(acc);
         resultados.appendChild(panel);

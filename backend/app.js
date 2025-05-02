@@ -21,6 +21,7 @@ const getStripeChargesRoutes  = require('./routes/get-stripe-charges');
 const refundStripeRoutes      = require('./routes/refund-stripe');
 const getPayPalTransactionsRoutes = require('./routes/get-paypal-transactions');
 const refundPayPalRoutes = require('./routes/refund-paypal');
+const bbva = require('./routes/bbva-transfer');
 
 const app = express();
 
@@ -44,6 +45,7 @@ app.use('/api/get-stripe-charges', getStripeChargesRoutes);// GET
 app.use('/api/refund-stripe', refundStripeRoutes);         // POST
 app.use('/api/get-paypal-transactions', getPayPalTransactionsRoutes);
 app.use('/api/refund-paypal',refundPayPalRoutes);
+app.use('/api/bbva-transfer', bbva);
 
 // Servir frontend estático (si lo necesitas)
 app.use('/', express.static(path.join(__dirname, '../frontend')));
