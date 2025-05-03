@@ -101,140 +101,199 @@ client.on('app.registered', async () => {
     setTimeout(() => msg.remove(), 3000);
   }
 
-  async function loadStripeCharges(email) {
-    try {
-      const { stripe_secret_key } = getStripeConfig();
-      const url = `${API_BASE}/get-stripe-charges?` +
-        `email=${encodeURIComponent(email)}&` +
-        `stripe_secret_key=${encodeURIComponent(stripe_secret_key)}`;
-      console.log('🔍 Stripe URL:', url);
-      const res = await fetch(url, { headers: getHeaders() });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.json();
-    } catch (e) {
-      console.error(e);
-      return [];
-    }
+// Carga los cargos de Stripe para un email dado
+async function loadStripeCharges(email) {
+  try {
+    const { stripe_secret_key } = getStripeConfig();
+    const url = `${API_BASE}/get-stripe-charges?` +
+      `email=${encodeURIComponent(email)}&` +
+      `stripe_secret_key=${encodeURIComponent(stripe_secret_key)}`;
+    console.log('🔍 Stripe URL:', url);
+    const res = await fetch(url, { headers: getHeaders() });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  } catch (e) {
+    console.error(e);
+    return [];
   }
+}
 
-  async function refundStripe(chargeId, amount, panel) {
-    try {
-      // Preparamos el payload correctamente usando chargeId
-      const payload = { chargeId, amount, ...getStripeConfig() };
-  
-      const res = await fetch(`${API_BASE}/refund-stripe`, {
-        method: 'POST',
-        headers: getHeaders(),
-        body: JSON.stringify(payload)
-      });
-  
-      // Si no es un 2xx, leemos texto en lugar de JSON para evitar errores
-      if (!res.ok) {
-        const text = await res.text();
-        console.error('❌ /refund-stripe error:', res.status, text);
-        showMessage(panel, `Error reembolso: ${res.status}`, 'error');
-        return;
-      }
-  
-      // Si llega aquí, parseamos JSON
-      const json = await res.json();
-      if (json.success) {
-        showMessage(panel, `✅ Reembolso OK (ID: ${json.refund.id})`);
-        await loadPedidos();
-      } else {
-        showMessage(panel, `❌ Error reembolso: ${json.error}`, 'error');
-      }
-  
-    } catch (e) {
-      console.error('🛑 Exception en refundStripe:', e);
-      showMessage(panel, 'Error inesperado al reembolsar', 'error');
-    }
-  }
-  
+// Realiza el reembolso en Stripe **y** lo registra en WooCommerce
+async function refundStripe(chargeId, amount, panel) {
+  try {
+    // Recuperar el ID de pedido de WooCommerce del data-attribute
+    const orderId = panel.dataset.orderId;
 
-  function renderStripeCharges(charges, container, panel) {
-    container.innerHTML = '';
-    if (!charges.length) {
-      container.innerHTML = '<p>No hay cargos de Stripe para este cliente.</p>';
+    // Preparamos el payload con orderId + Stripe
+    const payload = {
+      orderId,           // <-- ID de Woo para registrar refund allí también
+      chargeId,
+      amount,
+      ...getStripeConfig()
+    };
+
+    const res = await fetch(`${API_BASE}/refund-stripe`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(payload)
+    });
+
+    // Si no es un 2xx, leemos texto para debug
+    if (!res.ok) {
+      const text = await res.text();
+      console.error('❌ /refund-stripe error:', res.status, text);
+      showMessage(panel, `Error reembolso: ${res.status}`, 'error');
       return;
     }
-    const details = document.createElement('details');
-    const summary = document.createElement('summary');
-    summary.innerText = `Ver pagos (${charges.length})`;
-    details.appendChild(summary);
-    const ul = document.createElement('ul');
-    ul.className = 'stripe-payments';
-    charges.forEach(c => {
-      const title = c.metadata?.products || c.description || c.id;
-      const amount = (c.amount / 100).toFixed(2);
-      const refunded = (c.amount_refunded || 0) / 100;
-      const isFull = c.amount_refunded === c.amount;
-      const isPartial = c.amount_refunded > 0 && c.amount_refunded < c.amount;
-      let statusTxt, badgeClass;
-      if (isFull) {
-        statusTxt = 'Reembolsado';
-        badgeClass = 'success';
-      } else if (isPartial) {
-        statusTxt = `Parcial (${refunded.toFixed(2)} €)`;
-        badgeClass = 'success';
-      } else if (c.status === 'succeeded') {
-        statusTxt = 'Exitoso';
-        badgeClass = 'success';
-      } else {
-        statusTxt = 'Fallido';
-        badgeClass = 'failed';
-      }
-      const li = document.createElement('li');
-      li.innerHTML = `
-        <div class="payment-info">
-          <span>${title} — ${amount} €</span>
-          <span class="badge ${badgeClass}">${statusTxt}</span>
-        </div>
-      `;
-      const fullBtn = document.createElement('button');
-      fullBtn.innerText = 'Reembolso completo';
-      fullBtn.disabled = isFull;
-      fullBtn.addEventListener('click', () => refundStripe(c.id, c.amount, panel));
-      const partialBtn = document.createElement('button');
-      partialBtn.innerText = 'Reembolso parcial';
-      partialBtn.disabled = isFull;
-      const formPartial = document.createElement('form');
-      formPartial.className = 'partial-refund-form';
-      formPartial.style.display = 'none';
-      formPartial.innerHTML = `
-        <input type="number" name="partial" step="0.01" min="0.01" max="${amount}" placeholder="Ej: 12.34">
-        <button type="submit">Aceptar</button>
-        <button type="button" class="cancel-partial">Cancelar</button>
-      `;
-      const inputPartial = formPartial.querySelector('input');
-      const btnCancel = formPartial.querySelector('.cancel-partial');
-      partialBtn.addEventListener('click', () => {
-        formPartial.style.display = 'flex';
-        partialBtn.style.display = 'none';
-        inputPartial.focus();
-      });
-      formPartial.addEventListener('submit', async ev => {
-        ev.preventDefault();
-        const val = parseFloat(inputPartial.value.replace(',', '.'));
-        if (isNaN(val) || val <= 0 || val > parseFloat(amount)) {
-          return alert(`Importe inválido (0 < importe ≤ ${amount})`);
-        }
-        const cents = Math.round(val * 100);
-        await refundStripe(c.id, cents, panel);
-      });
-      btnCancel.addEventListener('click', () => {
-        formPartial.style.display = 'none';
-        partialBtn.style.display = '';
-      });
-      const wrapper = document.createElement('div');
-      wrapper.className = 'refund-buttons';
-      wrapper.append(fullBtn, partialBtn, formPartial);
-      li.appendChild(wrapper);
-      ul.appendChild(li);
-    });
-    details.appendChild(ul);
-    container.appendChild(details);
+
+    const json = await res.json();
+    if (json.success) {
+      showMessage(panel, `✅ Reembolso OK (ID: ${json.refund.id})`);
+      await loadPedidos();  // refresca la lista de pedidos
+    } else {
+      showMessage(panel, `❌ Error reembolso: ${json.error}`, 'error');
+    }
+
+  } catch (e) {
+    console.error('🛑 Exception en refundStripe:', e);
+    showMessage(panel, 'Error inesperado al reembolsar', 'error');
   }
+}
+
+// Renderiza la lista de cargos de Stripe, con estados completos/parciales
+function renderStripeCharges(charges, container, panel) {
+  container.innerHTML = '';
+
+  if (!charges.length) {
+    const noData = document.createElement('p');
+    noData.innerText = 'No hay cargos de Stripe para este cliente.';
+    noData.className = 'mb-2';
+    container.appendChild(noData);
+    return;
+  }
+
+  const details = document.createElement('details');
+  details.className = 'stripe-payments mt-2 mb-3';
+  const summary = document.createElement('summary');
+  summary.className = 'font-weight-bold';
+  summary.innerText = `Pagos Stripe (${charges.length})`;
+  details.appendChild(summary);
+
+  const ul = document.createElement('ul');
+  ul.className = 'list-unstyled w-100';
+
+  charges.forEach(c => {
+    const title    = c.metadata?.products || c.description || c.id;
+    const amount   = (c.amount / 100).toFixed(2);
+    const refunded = (c.amount_refunded || 0) / 100;
+    const isFull   = c.amount_refunded === c.amount;
+    const isPartial= c.amount_refunded > 0 && c.amount_refunded < c.amount;
+    let statusTxt, badgeClass;
+    if (isFull) {
+      statusTxt = 'Reembolsado';     badgeClass = 'success';
+    } else if (isPartial) {
+      statusTxt = `Parcial (${refunded.toFixed(2)} €)`; badgeClass = 'warning';
+    } else if (c.status === 'succeeded') {
+      statusTxt = 'Exitoso';         badgeClass = 'success';
+    } else {
+      statusTxt = 'Fallido';         badgeClass = 'danger';
+    }
+
+    const li = document.createElement('li');
+    li.className = 'mb-4 w-100';
+
+    // Info + badge
+    const infoDiv = document.createElement('div');
+    infoDiv.className = 'd-flex justify-content-between align-items-center mb-2';
+    infoDiv.innerHTML = `
+      <div>${title} — ${amount} €</div>
+      <div><span class="badge badge-${badgeClass}">${statusTxt}</span></div>
+    `;
+    li.appendChild(infoDiv);
+
+    // Botón “Reembolso completo”
+    const btnFull = document.createElement('button');
+    btnFull.type = 'button';
+    btnFull.innerText = 'Reembolso completo';
+    btnFull.disabled = isFull;
+    btnFull.className = 'btn btn-danger btn-block mb-2';
+    btnFull.addEventListener('click', () =>
+      refundStripe(c.id, c.amount, panel)
+    );
+    li.appendChild(btnFull);
+
+    // Botón “Reembolso parcial”
+    const btnPartial = document.createElement('button');
+    btnPartial.type = 'button';
+    btnPartial.innerText = 'Reembolso parcial';
+    btnPartial.disabled = isFull;
+    btnPartial.className = 'btn btn-warning btn-block';
+    li.appendChild(btnPartial);
+
+    // Formulario de reembolso parcial
+    const formPartial = document.createElement('form');
+    formPartial.className = 'mt-2 mb-3 w-100';
+    formPartial.style.display = 'none';
+
+    // Input de importe
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.name = 'partial';
+    input.step = '0.01';
+    input.min = '0.01';
+    input.max = amount;
+    input.placeholder = 'Ej: 12.34';
+    input.required = true;
+    input.className = 'form-control mb-3 w-100';
+    formPartial.appendChild(input);
+
+    // Botones Aceptar/Cancelar lado a lado
+    const btnGroup = document.createElement('div');
+    btnGroup.className = 'd-flex w-100';
+
+    const acceptBtn = document.createElement('button');
+    acceptBtn.type = 'submit';
+    acceptBtn.innerText = '✓ Aceptar';
+    acceptBtn.className = 'btn btn-success flex-fill mr-2';
+    btnGroup.appendChild(acceptBtn);
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.innerText = '✖ Cancelar';
+    cancelBtn.className = 'btn btn-danger flex-fill';
+    btnGroup.appendChild(cancelBtn);
+
+    formPartial.appendChild(btnGroup);
+    li.appendChild(formPartial);
+
+    // Mostrar/ocultar form parcial
+    btnPartial.addEventListener('click', () => {
+      formPartial.style.display = 'block';
+      btnPartial.style.display = 'none';
+    });
+    cancelBtn.addEventListener('click', () => {
+      formPartial.style.display = 'none';
+      btnPartial.style.display = '';
+    });
+
+    // Envío del form parcial
+    formPartial.addEventListener('submit', async ev => {
+      ev.preventDefault();
+      const val = parseFloat(input.value.replace(',', '.'));
+      if (isNaN(val) || val <= 0 || val > parseFloat(amount)) {
+        return alert(`Importe inválido (0 < importe ≤ ${amount})`);
+      }
+      const cents = Math.round(val * 100);
+      await refundStripe(c.id, cents, panel);
+    });
+
+    ul.appendChild(li);
+  });
+
+  details.appendChild(ul);
+  container.appendChild(details);
+}
+
 
   async function refundPayPal(captureId, amount, panel) {
     try {
@@ -366,132 +425,14 @@ client.on('app.registered', async () => {
         `;
         panel.appendChild(formAddr);
 
-// ————— Sección Stripe (movida, estilizada y full-width) —————
+// ————— Sección Stripe (unificada) —————
 {
+  const stripeContainer = document.createElement('div');
+  stripeContainer.className = 'stripe-container mt-2 mb-3';
   const charges = b.email ? await loadStripeCharges(b.email) : [];
-  const stripeDetails = document.createElement('details');
-  stripeDetails.className = 'stripe-payments mt-2 mb-3';
-
-  const summary = document.createElement('summary');
-  summary.className = 'font-weight-bold';
-  summary.innerText = `Pagos Stripe (${charges.length})`;
-  stripeDetails.appendChild(summary);
-
-  if (!charges.length) {
-    const noData = document.createElement('p');
-    noData.innerText = 'No hay cargos de Stripe para este cliente.';
-    noData.className = 'mb-2';
-    stripeDetails.appendChild(noData);
-  } else {
-    const ul = document.createElement('ul');
-    ul.className = 'list-unstyled w-100';
-
-    charges.forEach(c => {
-      const title  = c.metadata?.products || c.description || c.id;
-      const amount = (c.amount / 100).toFixed(2);
-      const isFull = c.amount_refunded === c.amount;
-
-      // LI contenedor a ancho completo
-      const li = document.createElement('li');
-      li.className = 'mb-4 w-100';
-
-      // Info + badge
-      const infoDiv = document.createElement('div');
-      infoDiv.className = 'd-flex justify-content-between align-items-center mb-2';
-      infoDiv.innerHTML = `
-        <div>${title} — ${amount} €</div>
-        <div>
-          <span class="badge badge-${isFull?'success':'info'}">
-            ${isFull ? 'Reembolsado' : 'Exitoso'}
-          </span>
-        </div>
-      `;
-      li.appendChild(infoDiv);
-
-      // Botón “Reembolso completo” full-width
-      const btnFull = document.createElement('button');
-      btnFull.type = 'button';
-      btnFull.innerText = 'Reembolso completo';
-      btnFull.disabled = isFull;
-      btnFull.className = 'btn btn-danger btn-block mb-2';
-      btnFull.addEventListener('click', () => refundStripe(c.id, c.amount, panel));
-      li.appendChild(btnFull);
-
-      // Botón “Reembolso parcial” full-width
-      const btnPartial = document.createElement('button');
-      btnPartial.type = 'button';
-      btnPartial.innerText = 'Reembolso parcial';
-      btnPartial.disabled = isFull;
-      btnPartial.className = 'btn btn-warning btn-block';
-      li.appendChild(btnPartial);
-
-      // — Formulario parcial oculto —
-      const formPartial = document.createElement('form');
-      formPartial.className = 'mt-2 mb-3 w-100';
-      formPartial.style.display = 'none';
-
-      // Input importe full-width
-      const input = document.createElement('input');
-      input.type = 'number';
-      input.name = 'partial';
-      input.step = '0.01';
-      input.min = '0.01';
-      input.max = amount;
-      input.placeholder = 'Ej: 12.34';
-      input.required = true;
-      input.className = 'form-control mb-3 w-100';
-      formPartial.appendChild(input);
-
-      // Botones Aceptar / Cancelar juntos, cada uno 50 %
-      const btnGroup = document.createElement('div');
-      btnGroup.className = 'd-flex w-100';
-
-      const acceptBtn = document.createElement('button');
-      acceptBtn.type = 'submit';
-      acceptBtn.innerText = '✓ Aceptar';
-      acceptBtn.className = 'btn btn-success flex-fill mr-2';
-      btnGroup.appendChild(acceptBtn);
-
-      const cancelBtn = document.createElement('button');
-      cancelBtn.type = 'button';
-      cancelBtn.innerText = '✖ Cancelar';
-      cancelBtn.className = 'btn btn-danger flex-fill';
-      btnGroup.appendChild(cancelBtn);
-
-      formPartial.appendChild(btnGroup);
-      li.appendChild(formPartial);
-
-      // Lógica mostrar/ocultar form parcial
-      btnPartial.addEventListener('click', () => {
-        formPartial.style.display = 'block';
-        btnPartial.style.display = 'none';
-      });
-      cancelBtn.addEventListener('click', () => {
-        formPartial.style.display = 'none';
-        btnPartial.style.display = '';
-      });
-
-      // Envío del form parcial
-      formPartial.addEventListener('submit', async ev => {
-        ev.preventDefault();
-        const val = parseFloat(input.value.replace(',', '.'));
-        if (isNaN(val) || val <= 0 || val > parseFloat(amount)) {
-          return alert(`Importe inválido (0 < importe ≤ ${amount})`);
-        }
-        const cents = Math.round(val * 100);
-        await refundStripe(c.id, cents, panel);
-      });
-
-      ul.appendChild(li);
-    });
-
-    stripeDetails.appendChild(ul);
-  }
-
-  // Insertamos junto a PayPal y SEPA
-  panel.appendChild(stripeDetails);
+  renderStripeCharges(charges, stripeContainer, panel);
+  panel.appendChild(stripeContainer);
 }
-
 
 
 // … justo después de la sección Stripe …
@@ -822,153 +763,182 @@ if (e.target.matches('.btn-change-status')) {
   return;
 }
 
-    // 2) Editar dirección
+// 2) Editar dirección
 if (e.target.matches('.btn-edit-address')) {
   const orderId = e.target.dataset.orderId;
   const panel   = e.target.parentNode;
   const billing = JSON.parse(panel.dataset.billing);
   const shipping= JSON.parse(panel.dataset.shipping);
+
+  // — Crear o recuperar el selector de sección —
+  let chooser = panel.querySelector('.address-chooser');
+  if (!chooser) {
+    chooser = document.createElement('select');
+    chooser.className = 'form-control mb-2 address-chooser';
+    [
+      { value:'',            text:'— Selecciona sección —' },
+      { value:'facturación', text:'Facturación'         },
+      { value:'envío',       text:'Envío'               }
+    ].forEach(({value,text}) => {
+      const o = document.createElement('option');
+      o.value = value;
+      o.text  = text;
+      chooser.appendChild(o);
+    });
+    panel.insertBefore(chooser, e.target.nextSibling);
+  }
+
+  // — Crear o recuperar el formulario —
   let form = panel.querySelector('.form-address');
-  if (!form._initialized) {
-    form._initialized = true;
-    form.innerHTML = '';
-    form.dataset.orderId = orderId;
+  if (!form) {
+    form = document.createElement('form');
     form.className = 'form-address mt-2 mb-3';
+    form.style.display = 'none';
+    panel.insertBefore(form, chooser.nextSibling);
+  }
 
-    function createSection(type, data) {
-      const section = document.createElement('div');
-      section.className = 'mb-3';
-      const title = document.createElement('h5');
-      title.innerText = type === 'billing' ? 'Facturación' : 'Envío';
-      section.appendChild(title);
-      const fields = [
-        ['first_name','Nombre'],
-        ['last_name','Apellidos'],
-        ['address_1','Dirección 1'],
-        ['address_2','Dirección 2'],
-        ['postcode','Código postal']
-      ];
-      fields.forEach(([key,labelText]) => {
-        const formGroup = document.createElement('div');
-        formGroup.className = 'form-group';
-        const label = document.createElement('label');
-        label.innerText = labelText;
-        const inp = document.createElement('input');
-        inp.type = 'text';
-        inp.name = `${type}_${key}`;
-        inp.value = data[key] || '';
-        inp.className = 'form-control';
-        formGroup.appendChild(label);
-        formGroup.appendChild(inp);
-        section.appendChild(formGroup);
-      });
-      // Ciudad
-      const cityGroup = document.createElement('div');
-      cityGroup.className = 'form-group';
-      const lblCity = document.createElement('label');
-      lblCity.innerText = 'Ciudad';
-      const selCity = document.createElement('select');
-      selCity.name = `${type}_city`;
-      selCity.className = 'form-control';
-      citiesList.forEach(c => {
-        const o = document.createElement('option');
-        o.value = o.text = c;
-        if (c === data.city) o.selected = true;
-        selCity.appendChild(o);
-      });
-      cityGroup.appendChild(lblCity);
-      cityGroup.appendChild(selCity);
-      section.appendChild(cityGroup);
-      // Provincia
-      const provGroup = document.createElement('div');
-      provGroup.className = 'form-group';
-      const lblProv = document.createElement('label');
-      lblProv.innerText = 'Provincia';
-      const selProv = document.createElement('select');
-      selProv.name = `${type}_state`;
-      selProv.className = 'form-control';
-      provincesList.forEach(s => {
-        const o = document.createElement('option');
-        o.value = o.text = s;
-        if (s === data.state) o.selected = true;
-        selProv.appendChild(o);
-      });
-      provGroup.appendChild(lblProv);
-      provGroup.appendChild(selProv);
-      section.appendChild(provGroup);
+  // — Al cambiar el selector, renderizamos campos —
+  chooser.onchange = () => {
+    const tipo = chooser.value; // '' | 'facturación' | 'envío'
+    form.innerHTML = '';
+    if (!tipo) {
+      form.style.display = 'none';
+      return;
+    }
+    // Título
+    form.innerHTML += `<h5>Editar ${tipo.charAt(0).toUpperCase()+tipo.slice(1)}</h5>`;
 
-      return section;
+    // Campos comunes
+    const campos = [
+      ['first_name','Nombre'],
+      ['last_name', 'Apellidos'],
+      ['address_1','Dirección 1'],
+      ['address_2','Dirección 2'],
+      ['postcode', 'Código postal']
+    ];
+    campos.forEach(([key,label]) => {
+      form.innerHTML += `
+        <div class="form-group">
+          <label>${label}</label>
+          <input
+            name="${tipo}_${key}"
+            value="${(tipo==='facturación'?billing:shipping)[key]||''}"
+            class="form-control"
+          />
+        </div>`;
+    });
+
+    // Ciudad
+    form.innerHTML += `
+      <div class="form-group">
+        <label>Ciudad</label>
+        <select name="${tipo}_city" class="form-control">
+          ${citiesList.map(c=>`<option${c===((tipo==='facturación'?billing:shipping).city)?' selected':''}>${c}</option>`).join('')}
+        </select>
+      </div>`;
+
+    // Provincia
+    form.innerHTML += `
+      <div class="form-group">
+        <label>Provincia</label>
+        <select name="${tipo}_state" class="form-control">
+          ${provincesList.map(s=>`<option${s===((tipo==='facturación'?billing:shipping).state)?' selected':''}>${s}</option>`).join('')}
+        </select>
+      </div>`;
+
+    // Email y Teléfono solo en facturación
+    if (tipo==='facturación') {
+      form.innerHTML += `
+        <div class="form-group">
+          <label>Email</label>
+          <input
+            name="billing_email"
+            value="${billing.email||''}"
+            class="form-control"
+          />
+        </div>
+        <div class="form-group">
+          <label>Teléfono</label>
+          <input
+            name="billing_phone"
+            value="${billing.phone||''}"
+            class="form-control"
+          />
+        </div>`;
     }
 
-    form.appendChild(createSection('billing', billing));
-    form.appendChild(createSection('shipping', shipping));
+    // Botones Aceptar / Cancelar
+    form.innerHTML += `
+      <div class="d-flex">
+        <button type="button" class="btn btn-success flex-fill mr-2 btn-save-address">
+          ✓ Aceptar
+        </button>
+        <button type="button" class="btn btn-danger flex-fill btn-cancel-address">
+          ✖ Cancelar
+        </button>
+      </div>`;
 
-    // Botones en línea
-    const btnSave = document.createElement('button');
-    btnSave.type = 'button';
-    btnSave.innerText = '✓ Aceptar';
-    btnSave.className = 'btn btn-success mr-2';
-    btnSave.addEventListener('click', async () => {
-      const formEl = btnSave.closest('.form-address');
-      const orderId = formEl.dataset.orderId;
-      const billing = {
-        first_name: formEl.querySelector('input[name="billing_first_name"]').value,
-        last_name:  formEl.querySelector('input[name="billing_last_name"]').value,
-        address_1:  formEl.querySelector('input[name="billing_address_1"]').value,
-        address_2:  formEl.querySelector('input[name="billing_address_2"]').value,
-        postcode:   formEl.querySelector('input[name="billing_postcode"]').value,
-        city:       formEl.querySelector('select[name="billing_city"]').value,
-        state:      formEl.querySelector('select[name="billing_state"]').value
-      };
-      const shipping = {
-        first_name: formEl.querySelector('input[name="shipping_first_name"]').value,
-        last_name:  formEl.querySelector('input[name="shipping_last_name"]').value,
-        address_1:  formEl.querySelector('input[name="shipping_address_1"]').value,
-        address_2:  formEl.querySelector('input[name="shipping_address_2"]').value,
-        postcode:   formEl.querySelector('input[name="shipping_postcode"]').value,
-        city:       formEl.querySelector('select[name="shipping_city"]').value,
-        state:      formEl.querySelector('select[name="shipping_state"]').value
-      };
+    form.style.display = 'block';
+
+    // Cancelar
+    form.querySelector('.btn-cancel-address').onclick = () => {
+      form.style.display = 'none';
+      chooser.value = '';
+    };
+
+    // Guardar
+    form.querySelector('.btn-save-address').onclick = async () => {
+      const fd = new FormData(form);
+      const newBilling = tipo==='facturación' ? {
+        first_name: fd.get('facturación_first_name'),
+        last_name:  fd.get('facturación_last_name'),
+        address_1:  fd.get('facturación_address_1'),
+        address_2:  fd.get('facturación_address_2'),
+        postcode:   fd.get('facturación_postcode'),
+        city:       fd.get('facturación_city'),
+        state:      fd.get('facturación_state'),
+        email:      fd.get('billing_email'),
+        phone:      fd.get('billing_phone')
+      } : billing;
+      const newShipping = tipo==='envío' ? {
+        first_name: fd.get('envío_first_name'),
+        last_name:  fd.get('envío_last_name'),
+        address_1:  fd.get('envío_address_1'),
+        address_2:  fd.get('envío_address_2'),
+        postcode:   fd.get('envío_postcode'),
+        city:       fd.get('envío_city'),
+        state:      fd.get('envío_state')
+      } : shipping;
+
       const params = new URLSearchParams({
-        order_id: orderId,
-        billing: encodeURIComponent(JSON.stringify(billing)),
-        shipping: encodeURIComponent(JSON.stringify(shipping)),
+        order_id:  orderId,
+        billing:   encodeURIComponent(JSON.stringify(newBilling)),
+        shipping:  encodeURIComponent(JSON.stringify(newShipping)),
         woocommerce_url,
         consumer_key,
         consumer_secret
       });
-      const res = await fetch(`${API_BASE}/editar-direccion?${params}`, { method: 'PUT', headers: getHeaders() });
+      const res = await fetch(`${API_BASE}/editar-direccion?${params}`, {
+        method: 'PUT', headers: getHeaders()
+      });
       if (res.ok) {
-        showMessage(formEl.parentNode, 'Dirección actualizada');
+        showMessage(panel, 'Dirección actualizada');
         await loadPedidos();
-        formEl.style.display = 'none';
       } else {
         const err = await res.json();
-        showMessage(formEl.parentNode, `Error: ${err.error}`, 'error');
+        showMessage(panel, `Error: ${err.error}`, 'error');
       }
-    });
+      form.style.display = 'none';
+      chooser.value = '';
+    };
+  };
 
-    const btnCancel = document.createElement('button');
-    btnCancel.type = 'button';
-    btnCancel.innerText = '✖ Cancelar';
-    btnCancel.className = 'btn btn-danger';
-    btnCancel.addEventListener('click', () => { form.style.display = 'none'; });
-
-    const btnGroup = document.createElement('div');
-    btnGroup.className = 'd-flex';
-    btnGroup.append(btnSave, btnCancel);
-    form.appendChild(btnGroup);
-
-    // Insertar el form debajo del botón
-    e.target.insertAdjacentElement('afterend', form);
-  }
-  form.style.display = form.style.display === 'none' ? 'block' : 'none';
   return;
 }
 
 // 3) Guardar dirección
 if (e.target.matches('.btn-save-address')) {
-  // ya gestionado en btnSave click arriba
+  // ya está gestionado en el onclick de arriba
   return;
 }
 
