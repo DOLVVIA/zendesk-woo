@@ -119,24 +119,38 @@ client.on('app.registered', async () => {
 
   async function refundStripe(chargeId, amount, panel) {
     try {
+      // Preparamos el payload correctamente usando chargeId
       const payload = { chargeId, amount, ...getStripeConfig() };
+  
       const res = await fetch(`${API_BASE}/refund-stripe`, {
         method: 'POST',
         headers: getHeaders(),
         body: JSON.stringify(payload)
       });
+  
+      // Si no es un 2xx, leemos texto en lugar de JSON para evitar errores
+      if (!res.ok) {
+        const text = await res.text();
+        console.error('❌ /refund-stripe error:', res.status, text);
+        showMessage(panel, `Error reembolso: ${res.status}`, 'error');
+        return;
+      }
+  
+      // Si llega aquí, parseamos JSON
       const json = await res.json();
       if (json.success) {
-        showMessage(panel, `Reembolso OK (ID: ${json.refund.id})`);
+        showMessage(panel, `✅ Reembolso OK (ID: ${json.refund.id})`);
         await loadPedidos();
       } else {
-        showMessage(panel, `Error reembolso: ${json.error}`, 'error');
+        showMessage(panel, `❌ Error reembolso: ${json.error}`, 'error');
       }
+  
     } catch (e) {
-      console.error(e);
+      console.error('🛑 Exception en refundStripe:', e);
       showMessage(panel, 'Error inesperado al reembolsar', 'error');
     }
   }
+  
 
   function renderStripeCharges(charges, container, panel) {
     container.innerHTML = '';
@@ -352,14 +366,133 @@ client.on('app.registered', async () => {
         `;
         panel.appendChild(formAddr);
 
-        // Sección Stripe (al final)
-        {
-          const charges = b.email ? await loadStripeCharges(b.email) : [];
-          const stripeContainer = document.createElement('div');
-          stripeContainer.className = 'stripe-container';
-          renderStripeCharges(charges, stripeContainer, panel);
-          panel.appendChild(stripeContainer);
+// ————— Sección Stripe (movida, estilizada y full-width) —————
+{
+  const charges = b.email ? await loadStripeCharges(b.email) : [];
+  const stripeDetails = document.createElement('details');
+  stripeDetails.className = 'stripe-payments mt-2 mb-3';
+
+  const summary = document.createElement('summary');
+  summary.className = 'font-weight-bold';
+  summary.innerText = `Pagos Stripe (${charges.length})`;
+  stripeDetails.appendChild(summary);
+
+  if (!charges.length) {
+    const noData = document.createElement('p');
+    noData.innerText = 'No hay cargos de Stripe para este cliente.';
+    noData.className = 'mb-2';
+    stripeDetails.appendChild(noData);
+  } else {
+    const ul = document.createElement('ul');
+    ul.className = 'list-unstyled w-100';
+
+    charges.forEach(c => {
+      const title  = c.metadata?.products || c.description || c.id;
+      const amount = (c.amount / 100).toFixed(2);
+      const isFull = c.amount_refunded === c.amount;
+
+      // LI contenedor a ancho completo
+      const li = document.createElement('li');
+      li.className = 'mb-4 w-100';
+
+      // Info + badge
+      const infoDiv = document.createElement('div');
+      infoDiv.className = 'd-flex justify-content-between align-items-center mb-2';
+      infoDiv.innerHTML = `
+        <div>${title} — ${amount} €</div>
+        <div>
+          <span class="badge badge-${isFull?'success':'info'}">
+            ${isFull ? 'Reembolsado' : 'Exitoso'}
+          </span>
+        </div>
+      `;
+      li.appendChild(infoDiv);
+
+      // Botón “Reembolso completo” full-width
+      const btnFull = document.createElement('button');
+      btnFull.type = 'button';
+      btnFull.innerText = 'Reembolso completo';
+      btnFull.disabled = isFull;
+      btnFull.className = 'btn btn-danger btn-block mb-2';
+      btnFull.addEventListener('click', () => refundStripe(c.id, c.amount, panel));
+      li.appendChild(btnFull);
+
+      // Botón “Reembolso parcial” full-width
+      const btnPartial = document.createElement('button');
+      btnPartial.type = 'button';
+      btnPartial.innerText = 'Reembolso parcial';
+      btnPartial.disabled = isFull;
+      btnPartial.className = 'btn btn-warning btn-block';
+      li.appendChild(btnPartial);
+
+      // — Formulario parcial oculto —
+      const formPartial = document.createElement('form');
+      formPartial.className = 'mt-2 mb-3 w-100';
+      formPartial.style.display = 'none';
+
+      // Input importe full-width
+      const input = document.createElement('input');
+      input.type = 'number';
+      input.name = 'partial';
+      input.step = '0.01';
+      input.min = '0.01';
+      input.max = amount;
+      input.placeholder = 'Ej: 12.34';
+      input.required = true;
+      input.className = 'form-control mb-3 w-100';
+      formPartial.appendChild(input);
+
+      // Botones Aceptar / Cancelar juntos, cada uno 50 %
+      const btnGroup = document.createElement('div');
+      btnGroup.className = 'd-flex w-100';
+
+      const acceptBtn = document.createElement('button');
+      acceptBtn.type = 'submit';
+      acceptBtn.innerText = '✓ Aceptar';
+      acceptBtn.className = 'btn btn-success flex-fill mr-2';
+      btnGroup.appendChild(acceptBtn);
+
+      const cancelBtn = document.createElement('button');
+      cancelBtn.type = 'button';
+      cancelBtn.innerText = '✖ Cancelar';
+      cancelBtn.className = 'btn btn-danger flex-fill';
+      btnGroup.appendChild(cancelBtn);
+
+      formPartial.appendChild(btnGroup);
+      li.appendChild(formPartial);
+
+      // Lógica mostrar/ocultar form parcial
+      btnPartial.addEventListener('click', () => {
+        formPartial.style.display = 'block';
+        btnPartial.style.display = 'none';
+      });
+      cancelBtn.addEventListener('click', () => {
+        formPartial.style.display = 'none';
+        btnPartial.style.display = '';
+      });
+
+      // Envío del form parcial
+      formPartial.addEventListener('submit', async ev => {
+        ev.preventDefault();
+        const val = parseFloat(input.value.replace(',', '.'));
+        if (isNaN(val) || val <= 0 || val > parseFloat(amount)) {
+          return alert(`Importe inválido (0 < importe ≤ ${amount})`);
         }
+        const cents = Math.round(val * 100);
+        await refundStripe(c.id, cents, panel);
+      });
+
+      ul.appendChild(li);
+    });
+
+    stripeDetails.appendChild(ul);
+  }
+
+  // Insertamos junto a PayPal y SEPA
+  panel.appendChild(stripeDetails);
+}
+
+
 
 // … justo después de la sección Stripe …
 
@@ -505,50 +638,72 @@ client.on('app.registered', async () => {
 // ————— Sección BBVA SEPA-TRANSFER —————
 {
   const bbvaDetails = document.createElement('details');
-  bbvaDetails.className = 'bbva-transfer';
+  bbvaDetails.className = 'bbva-transfer mt-2 mb-3';
   bbvaDetails.innerHTML = `
-    <summary>Enviar remesa SEPA Refund</summary>
-    <form class="bbva-form">
-      <p class="limit-warning">Límite por transferencia: <strong>100 €</strong></p>
-      <div class="field">
-        <label>IBAN beneficiario
-          <input name="iban" placeholder="ES00ZZ…" required />
-        </label>
-      </div>
-      <div class="field">
-        <label>Nombre beneficiario
-          <input name="name" placeholder="Juan Pérez" required />
-        </label>
-      </div>
-      <div class="field">
-        <label>Importe (€)
-          <input
-            type="number" name="amount"
-            step="0.01" max="100"
-            placeholder="0.00" required
-          />
-        </label>
-      </div>
-      <div class="field">
-        <label>Concepto (opcional)
-          <input name="info" placeholder="Refund Order #${pedido.id}" />
-        </label>
-      </div>
-      <button type="submit">Enviar transferencia</button>
-    </form>
+    <summary class="font-weight-bold">Enviar reembolso contrareembolso (IBAN)</summary>
   `;
+  
+  const form = document.createElement('form');
+  form.className = 'bbva-form p-3';
+  form.innerHTML = `
+    <div class="form-text mb-3">Límite por transferencia: <strong>100 €</strong></div>
+    <div class="form-group">
+      <label>IBAN beneficiario</label>
+      <input name="iban" class="form-control" placeholder="ES00ZZ…" required />
+    </div>
+    <div class="form-group">
+      <label>Nombre beneficiario</label>
+      <input name="name" class="form-control" placeholder="Juan Pérez" required />
+    </div>
+    <div class="form-group">
+      <label>Importe (€)</label>
+      <input
+        type="number" name="amount" class="form-control"
+        step="0.01" max="100" placeholder="0.00" required
+      />
+    </div>
+    <div class="form-group">
+      <label>Concepto (opcional)</label>
+      <input name="info" class="form-control" placeholder="Refund Order #${pedido.id}" />
+    </div>
+  `;
+
+  // Botones en línea
+  const btnSubmit = document.createElement('button');
+  btnSubmit.type = 'submit';
+  btnSubmit.innerText = '✓ Enviar transferencia';
+  btnSubmit.className = 'btn btn-primary mr-2';
+
+  const btnCancel = document.createElement('button');
+  btnCancel.type = 'button';
+  btnCancel.innerText = '✖ Cancelar';
+  btnCancel.className = 'btn btn-danger';
+
+  const btnGroup = document.createElement('div');
+  btnGroup.className = 'd-flex';
+  btnGroup.append(btnSubmit, btnCancel);
+  form.appendChild(btnGroup);
+
+  // Inserta el form en el details y en el panel
+  bbvaDetails.appendChild(form);
   panel.appendChild(bbvaDetails);
 
-  const form = bbvaDetails.querySelector('.bbva-form');
+  // Lógica de validación en tiempo real
   const amountInput = form.querySelector('input[name="amount"]');
-  const submitBtn   = form.querySelector('button[type="submit"]');
-
-  // Validar en tiempo real
+  btnSubmit.disabled = true;
   amountInput.addEventListener('input', () => {
     const v = parseFloat(amountInput.value);
-    submitBtn.disabled = isNaN(v) || v <= 0 || v > 100;
+    btnSubmit.disabled = isNaN(v) || v <= 0 || v > 100;
   });
 
+  // Cancelar
+  btnCancel.addEventListener('click', () => {
+    form.reset();
+    btnSubmit.disabled = true;
+    bbvaDetails.open = false;
+  });
+
+  // Envío
   form.addEventListener('submit', async ev => {
     ev.preventDefault();
     const iban = form.iban.value.trim();
@@ -556,36 +711,25 @@ client.on('app.registered', async () => {
     const amt  = parseFloat(form.amount.value);
     const info = form.info.value.trim();
 
-    // chequeo extra (por si el usuario manipula el DOM)
-    if (amt > 100) {
-      return alert('❌ No puedes enviar más de 100 € por transferencia.');
-    }
-
     try {
       const res = await fetch(`${API_BASE}/bbva-transfer`, {
         method: 'POST',
         headers: getHeaders(),
-        body: JSON.stringify({
-          creditorIban:   iban,
-          creditorName:   name,
-          amount:         amt,
-          remittanceInfo: info
-        })
+        body: JSON.stringify({ creditorIban: iban, creditorName: name, amount: amt, remittanceInfo: info })
       });
       const j = await res.json();
       if (j.success) {
-        alert('✅ Transferencia enviada con éxito. ');
+        showMessage(panel, '✅ Transferencia enviada con éxito');
         await loadPedidos();
       } else {
-        alert(`❌ Error: ${j.message || j.error}`);
+        showMessage(panel, `❌ Error: ${j.message||j.error}`, 'error');
       }
     } catch (e) {
       console.error(e);
-      alert('❌ Error inesperado al enviar transferencia');
+      showMessage(panel, '❌ Error inesperado al enviar transferencia', 'error');
     }
   });
 }
-
 
         resultados.appendChild(acc);
         resultados.appendChild(panel);
@@ -608,156 +752,182 @@ client.on('app.registered', async () => {
     }
   }
 
-  // Global click listener: estado, dirección, editar, eliminar, etc.
+  ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  //TODO LO QUE TENGA QUE VER CON BOTONES Y ESTETICA  Global click listener: estado, dirección, editar, eliminar, etc.
+  ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   document.addEventListener('click', async e => {
     const { woocommerce_url, consumer_key, consumer_secret } = getWooConfig();
 
     // 1) Cambiar estado
-    if (e.target.matches('.btn-change-status')) {
-      const orderId = e.target.dataset.orderId;
-      const currentStatus = e.target.dataset.status;
-      let form = e.target.parentNode.querySelector('.status-form');
-      if (!form) {
-        form = document.createElement('div');
-        form.className = 'status-form';
-        form.style.margin = '8px 0';
-        const sel = document.createElement('select');
-        orderStatuses.forEach(s => {
-          const opt = document.createElement('option');
-          opt.value = s.slug;
-          opt.text = s.name;
-          if (s.slug === currentStatus) opt.selected = true;
-          sel.appendChild(opt);
-        });
-        form.appendChild(sel);
-        const btnOk = document.createElement('button');
-        btnOk.innerText = 'Aceptar';
-        btnOk.style.margin = '0 4px';
-        btnOk.addEventListener('click', async () => {
-          const newStatus = sel.value;
-          const params = new URLSearchParams({
-            order_id: orderId,
-            status:   newStatus,
-            woocommerce_url,
-            consumer_key,
-            consumer_secret
-          });
-          const res = await fetch(`${API_BASE}/cambiar-estado?${params}`, {
-            method: 'PUT',
-            headers: getHeaders()
-          });
-          if (res.ok) {
-            showMessage(form.parentNode, 'Estado actualizado');
-            await loadPedidos();
-          } else {
-            const err = await res.json();
-            showMessage(form.parentNode, `Error: ${err.error}`, 'error');
-          }
-        });
-        form.appendChild(btnOk);
-        const btnCancel = document.createElement('button');
-        btnCancel.innerText = 'Cancelar';
-        btnCancel.addEventListener('click', () => { form.style.display = 'none'; });
-        form.appendChild(btnCancel);
-        e.target.parentNode.appendChild(form);
+if (e.target.matches('.btn-change-status')) {
+  const orderId = e.target.dataset.orderId;
+  const currentStatus = e.target.dataset.status;
+  let form = e.target.parentNode.querySelector('.status-form');
+  if (!form) {
+    form = document.createElement('div');
+    form.className = 'status-form mt-2 mb-3';
+
+    // Select de estados con ancho completo
+    const sel = document.createElement('select');
+    sel.className = 'form-control mb-2';
+    orderStatuses.forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s.slug;
+      opt.text = s.name;
+      if (s.slug === currentStatus) opt.selected = true;
+      sel.appendChild(opt);
+    });
+    form.appendChild(sel);
+
+    // Botones en la misma línea
+    const btnOk = document.createElement('button');
+    btnOk.innerText = '✓ Aceptar';
+    btnOk.className = 'btn btn-success mr-2';
+    btnOk.addEventListener('click', async () => {
+      const newStatus = sel.value;
+      const params = new URLSearchParams({
+        order_id: orderId,
+        status: newStatus,
+        woocommerce_url,
+        consumer_key,
+        consumer_secret
+      });
+      const res = await fetch(`${API_BASE}/cambiar-estado?${params}`, {
+        method: 'PUT',
+        headers: getHeaders()
+      });
+      if (res.ok) {
+        showMessage(form.parentNode, 'Estado actualizado');
+        await loadPedidos();
+      } else {
+        const err = await res.json();
+        showMessage(form.parentNode, `Error: ${err.error}`, 'error');
       }
-      form.style.display = form.style.display === 'none' ? 'block' : 'none';
-      return;
-    }
+    });
+
+    const btnCancel = document.createElement('button');
+    btnCancel.innerText = '✖ Cancelar';
+    btnCancel.className = 'btn btn-danger';
+    btnCancel.addEventListener('click', () => form.style.display = 'none');
+
+    const btnGroup = document.createElement('div');
+    btnGroup.className = 'd-flex';
+    btnGroup.append(btnOk, btnCancel);
+    form.appendChild(btnGroup);
+
+    // Inserta el formulario justo debajo del botón
+    e.target.insertAdjacentElement('afterend', form);
+  }
+  form.style.display = form.style.display === 'none' ? 'block' : 'none';
+  return;
+}
 
     // 2) Editar dirección
-    if (e.target.matches('.btn-edit-address')) {
-      const orderId = e.target.dataset.orderId;
-      const panel   = e.target.parentNode;
-      const billing = JSON.parse(panel.dataset.billing);
-      const shipping= JSON.parse(panel.dataset.shipping);
-      let form = panel.querySelector('.form-address');
-      if (!form._initialized) {
-        form._initialized = true;
-        form.innerHTML = '';
-        form.dataset.orderId = orderId;
-        form.style.display = 'none';
-        function createSection(type, data) {
-          const div = document.createElement('div');
-          const title = document.createElement('h4');
-          title.innerText = type === 'billing' ? 'Facturación' : 'Envío';
-          div.appendChild(title);
-          [['first_name','Nombre'],['last_name','Apellidos'],['address_1','Dirección 1'],['address_2','Dirección 2'],['postcode','Código postal']]
-            .forEach(([key,labelText]) => {
-              const label = document.createElement('label');
-              label.innerText = labelText;
-              const inp = document.createElement('input');
-              inp.name  = `${type}_${key}`;
-              inp.value = data[key] || '';
-              label.appendChild(inp);
-              div.appendChild(label);
-            });
-          const lblCity = document.createElement('label');
-          lblCity.innerText = 'Ciudad';
-          const selCity = document.createElement('select');
-          selCity.name = `${type}_city`;
-          citiesList.forEach(c => {
-            const o = document.createElement('option');
-            o.value = o.text = c;
-            if (c === data.city) o.selected = true;
-            selCity.appendChild(o);
-          });
-          lblCity.appendChild(selCity);
-          div.appendChild(lblCity);
-          const lblProv = document.createElement('label');
-          lblProv.innerText = 'Provincia';
-          const selProv = document.createElement('select');
-          selProv.name = `${type}_state`;
-          provincesList.forEach(s => {
-            const o = document.createElement('option');
-            o.value = o.text = s;
-            if (s === data.state) o.selected = true;
-            selProv.appendChild(o);
-          });
-          lblProv.appendChild(selProv);
-          div.appendChild(lblProv);
-          return div;
-        }
-        form.appendChild(createSection('billing', billing));
-        form.appendChild(createSection('shipping', shipping));
-        const btnSave = document.createElement('button');
-        btnSave.type = 'button';
-        btnSave.className = 'btn-save-address';
-        btnSave.innerText = 'Aceptar';
-        form.appendChild(btnSave);
-        const btnCancel = document.createElement('button');
-        btnCancel.type = 'button';
-        btnCancel.className = 'btn-cancel-address';
-        btnCancel.innerText = 'Cancelar';
-        btnCancel.style.margin = '0 4px';
-        btnCancel.addEventListener('click', () => { form.style.display = 'none'; });
-        form.appendChild(btnCancel);
-      }
-      form.style.display = form.style.display === 'none' ? 'block' : 'none';
-      return;
+if (e.target.matches('.btn-edit-address')) {
+  const orderId = e.target.dataset.orderId;
+  const panel   = e.target.parentNode;
+  const billing = JSON.parse(panel.dataset.billing);
+  const shipping= JSON.parse(panel.dataset.shipping);
+  let form = panel.querySelector('.form-address');
+  if (!form._initialized) {
+    form._initialized = true;
+    form.innerHTML = '';
+    form.dataset.orderId = orderId;
+    form.className = 'form-address mt-2 mb-3';
+
+    function createSection(type, data) {
+      const section = document.createElement('div');
+      section.className = 'mb-3';
+      const title = document.createElement('h5');
+      title.innerText = type === 'billing' ? 'Facturación' : 'Envío';
+      section.appendChild(title);
+      const fields = [
+        ['first_name','Nombre'],
+        ['last_name','Apellidos'],
+        ['address_1','Dirección 1'],
+        ['address_2','Dirección 2'],
+        ['postcode','Código postal']
+      ];
+      fields.forEach(([key,labelText]) => {
+        const formGroup = document.createElement('div');
+        formGroup.className = 'form-group';
+        const label = document.createElement('label');
+        label.innerText = labelText;
+        const inp = document.createElement('input');
+        inp.type = 'text';
+        inp.name = `${type}_${key}`;
+        inp.value = data[key] || '';
+        inp.className = 'form-control';
+        formGroup.appendChild(label);
+        formGroup.appendChild(inp);
+        section.appendChild(formGroup);
+      });
+      // Ciudad
+      const cityGroup = document.createElement('div');
+      cityGroup.className = 'form-group';
+      const lblCity = document.createElement('label');
+      lblCity.innerText = 'Ciudad';
+      const selCity = document.createElement('select');
+      selCity.name = `${type}_city`;
+      selCity.className = 'form-control';
+      citiesList.forEach(c => {
+        const o = document.createElement('option');
+        o.value = o.text = c;
+        if (c === data.city) o.selected = true;
+        selCity.appendChild(o);
+      });
+      cityGroup.appendChild(lblCity);
+      cityGroup.appendChild(selCity);
+      section.appendChild(cityGroup);
+      // Provincia
+      const provGroup = document.createElement('div');
+      provGroup.className = 'form-group';
+      const lblProv = document.createElement('label');
+      lblProv.innerText = 'Provincia';
+      const selProv = document.createElement('select');
+      selProv.name = `${type}_state`;
+      selProv.className = 'form-control';
+      provincesList.forEach(s => {
+        const o = document.createElement('option');
+        o.value = o.text = s;
+        if (s === data.state) o.selected = true;
+        selProv.appendChild(o);
+      });
+      provGroup.appendChild(lblProv);
+      provGroup.appendChild(selProv);
+      section.appendChild(provGroup);
+
+      return section;
     }
 
-    // 3) Guardar dirección
-    if (e.target.matches('.btn-save-address')) {
-      const form = e.target.closest('.form-address');
-      const orderId = form.dataset.orderId;
+    form.appendChild(createSection('billing', billing));
+    form.appendChild(createSection('shipping', shipping));
+
+    // Botones en línea
+    const btnSave = document.createElement('button');
+    btnSave.type = 'button';
+    btnSave.innerText = '✓ Aceptar';
+    btnSave.className = 'btn btn-success mr-2';
+    btnSave.addEventListener('click', async () => {
+      const formEl = btnSave.closest('.form-address');
+      const orderId = formEl.dataset.orderId;
       const billing = {
-        first_name: form.querySelector('input[name="billing_first_name"]').value,
-        last_name:  form.querySelector('input[name="billing_last_name"]').value,
-        address_1:  form.querySelector('input[name="billing_address_1"]').value,
-        address_2:  form.querySelector('input[name="billing_address_2"]').value,
-        postcode:   form.querySelector('input[name="billing_postcode"]').value,
-        city:       form.querySelector('select[name="billing_city"]').value,
-        state:      form.querySelector('select[name="billing_state"]').value
+        first_name: formEl.querySelector('input[name="billing_first_name"]').value,
+        last_name:  formEl.querySelector('input[name="billing_last_name"]').value,
+        address_1:  formEl.querySelector('input[name="billing_address_1"]').value,
+        address_2:  formEl.querySelector('input[name="billing_address_2"]').value,
+        postcode:   formEl.querySelector('input[name="billing_postcode"]').value,
+        city:       formEl.querySelector('select[name="billing_city"]').value,
+        state:      formEl.querySelector('select[name="billing_state"]').value
       };
       const shipping = {
-        first_name: form.querySelector('input[name="shipping_first_name"]').value,
-        last_name:  form.querySelector('input[name="shipping_last_name"]').value,
-        address_1:  form.querySelector('input[name="shipping_address_1"]').value,
-        address_2:  form.querySelector('input[name="shipping_address_2"]').value,
-        postcode:   form.querySelector('input[name="shipping_postcode"]').value,
-        city:       form.querySelector('select[name="shipping_city"]').value,
-        state:      form.querySelector('select[name="shipping_state"]').value
+        first_name: formEl.querySelector('input[name="shipping_first_name"]').value,
+        last_name:  formEl.querySelector('input[name="shipping_last_name"]').value,
+        address_1:  formEl.querySelector('input[name="shipping_address_1"]').value,
+        address_2:  formEl.querySelector('input[name="shipping_address_2"]').value,
+        postcode:   formEl.querySelector('input[name="shipping_postcode"]').value,
+        city:       formEl.querySelector('select[name="shipping_city"]').value,
+        state:      formEl.querySelector('select[name="shipping_state"]').value
       };
       const params = new URLSearchParams({
         order_id: orderId,
@@ -769,292 +939,379 @@ client.on('app.registered', async () => {
       });
       const res = await fetch(`${API_BASE}/editar-direccion?${params}`, { method: 'PUT', headers: getHeaders() });
       if (res.ok) {
-        showMessage(form.parentNode, 'Dirección actualizada');
+        showMessage(formEl.parentNode, 'Dirección actualizada');
         await loadPedidos();
+        formEl.style.display = 'none';
+      } else {
+        const err = await res.json();
+        showMessage(formEl.parentNode, `Error: ${err.error}`, 'error');
+      }
+    });
+
+    const btnCancel = document.createElement('button');
+    btnCancel.type = 'button';
+    btnCancel.innerText = '✖ Cancelar';
+    btnCancel.className = 'btn btn-danger';
+    btnCancel.addEventListener('click', () => { form.style.display = 'none'; });
+
+    const btnGroup = document.createElement('div');
+    btnGroup.className = 'd-flex';
+    btnGroup.append(btnSave, btnCancel);
+    form.appendChild(btnGroup);
+
+    // Insertar el form debajo del botón
+    e.target.insertAdjacentElement('afterend', form);
+  }
+  form.style.display = form.style.display === 'none' ? 'block' : 'none';
+  return;
+}
+
+// 3) Guardar dirección
+if (e.target.matches('.btn-save-address')) {
+  // ya gestionado en btnSave click arriba
+  return;
+}
+
+// 4) Eliminar artículo
+if (e.target.matches('.btn-delete-item')) {
+  const orderId  = e.target.dataset.orderId;
+  const lineIndex = e.target.dataset.index;
+  let form = e.target.parentNode.querySelector('.delete-item-form');
+  if (!form) {
+    form = document.createElement('div');
+    form.className = 'delete-item-form mt-2 mb-3';
+
+    const info = document.createElement('p');
+    info.innerText =
+      '¿Estás seguro de que deseas eliminar este artículo? El pedido pasará a "Pendiente de pago".';
+    form.appendChild(info);
+
+    const btnConfirm = document.createElement('button');
+    btnConfirm.innerText = '✓ Confirmar';
+    btnConfirm.className = 'btn btn-success mr-2';
+    btnConfirm.addEventListener('click', async () => {
+      const qc = getWooConfig();
+      const paramsStatus = new URLSearchParams({
+        order_id: orderId,
+        status: 'pending',
+        woocommerce_url: qc.woocommerce_url,
+        consumer_key: qc.consumer_key,
+        consumer_secret: qc.consumer_secret
+      });
+      const resStatus = await fetch(`${API_BASE}/cambiar-estado?${paramsStatus}`, {
+        method: 'PUT',
+        headers: getHeaders()
+      });
+      if (!resStatus.ok) {
+        const err = await resStatus.json();
+        showMessage(form.parentNode, `Error al cambiar estado: ${err.error}`, 'error');
+        return;
+      }
+      const paramsDel = new URLSearchParams({
+        order_id: orderId,
+        line_index: lineIndex,
+        woocommerce_url: qc.woocommerce_url,
+        consumer_key: qc.consumer_key,
+        consumer_secret: qc.consumer_secret
+      });
+      const resDel = await fetch(`${API_BASE}/eliminar-item?${paramsDel}`, {
+        method: 'DELETE',
+        headers: getHeaders()
+      });
+      if (resDel.ok) {
+        showMessage(form.parentNode, 'Artículo eliminado');
+        await loadPedidos();
+      } else {
+        const err2 = await resDel.json();
+        showMessage(form.parentNode, `Error al eliminar: ${err2.error}`, 'error');
+      }
+    });
+    form.appendChild(btnConfirm);
+
+    const btnCancel = document.createElement('button');
+    btnCancel.innerText = '✖ Cancelar';
+    btnCancel.className = 'btn btn-danger';
+    btnCancel.addEventListener('click', () => form.style.display = 'none');
+    form.appendChild(btnCancel);
+
+    e.target.insertAdjacentElement('afterend', form);
+  }
+  form.style.display = form.style.display === 'none' ? 'block' : 'none';
+  return;
+}
+
+// 5) Editar talla/cantidad
+if (e.target.matches('.btn-edit-item')) {
+  const btn         = e.target;
+  const orderId     = btn.dataset.orderId;
+  const lineIndex   = btn.dataset.index;
+  const productId   = btn.dataset.productId;
+  const oldVarId    = btn.dataset.variationId;
+  const oldQuantity = btn.dataset.quantity;
+
+  // Intentamos leer el form justo después del botón
+  let form = btn.nextElementSibling;
+  if (!form || !form.classList.contains('edit-item-form')) {
+    // Creamos un nuevo form
+    form = document.createElement('div');
+    form.className = 'edit-item-form mt-2 mb-3';
+
+    // Select de variaciones
+    const selVar = document.createElement('select');
+    selVar.className = 'form-control mb-2';
+    selVar.innerHTML = '<option value="">— Selecciona variación —</option>';
+    form.appendChild(selVar);
+
+    // Input de cantidad
+    const qtyInput = document.createElement('input');
+    qtyInput.type = 'number';
+    qtyInput.min = '1';
+    qtyInput.value = oldQuantity;
+    qtyInput.placeholder = 'Cantidad';
+    qtyInput.className = 'form-control mb-3';
+    form.appendChild(qtyInput);
+
+    // Botones Aceptar/Cancelar lado a lado
+    const btnOk = document.createElement('button');
+    btnOk.type = 'button';
+    btnOk.innerText = '✓ Aceptar';
+    btnOk.disabled = true;
+    btnOk.className = 'btn btn-success flex-fill mr-2';
+
+    const btnCancel = document.createElement('button');
+    btnCancel.type = 'button';
+    btnCancel.innerText = '✖ Cancelar';
+    btnCancel.className = 'btn btn-secondary flex-fill';
+    btnCancel.addEventListener('click', () => form.style.display = 'none');
+
+    const btnGroup = document.createElement('div');
+    btnGroup.className = 'd-flex';
+    btnGroup.append(btnOk, btnCancel);
+    form.appendChild(btnGroup);
+
+    // Habilitar el botón Aceptar sólo cuando haya variación y cantidad
+    selVar.addEventListener('change', () => {
+      btnOk.disabled = !(selVar.value && qtyInput.value);
+    });
+    qtyInput.addEventListener('input', () => {
+      btnOk.disabled = !(selVar.value && qtyInput.value);
+    });
+
+    // Cargar variaciones desde tu API
+    (async () => {
+      const { woocommerce_url, consumer_key, consumer_secret } = getWooConfig();
+      const paramsVar = new URLSearchParams({
+        product_id: productId,
+        woocommerce_url,
+        consumer_key,
+        consumer_secret
+      });
+      const resVar = await fetch(`${API_BASE}/get-variaciones?${paramsVar}`, {
+        headers: getHeaders()
+      });
+      const vars = await resVar.json();
+      vars.forEach(v => {
+        const opt = document.createElement('option');
+        opt.value = v.id;
+        opt.text = v.attributes.map(a => `${a.name}: ${a.option}`).join(', ');
+        if (v.id == oldVarId) opt.selected = true;
+        selVar.appendChild(opt);
+      });
+      if (selVar.value && qtyInput.value) btnOk.disabled = false;
+    })();
+
+    // Lógica al pulsar “Aceptar”
+    btnOk.addEventListener('click', async () => {
+      const newVarId = selVar.value;
+      const newQty   = qtyInput.value;
+      const qc       = getWooConfig();
+
+      // 1) Cambiar a pending
+      const p1 = new URLSearchParams({
+        order_id: orderId,
+        status: 'pending',
+        woocommerce_url: qc.woocommerce_url,
+        consumer_key: qc.consumer_key,
+        consumer_secret: qc.consumer_secret
+      });
+      const r1 = await fetch(`${API_BASE}/cambiar-estado?${p1}`, {
+        method: 'PUT',
+        headers: getHeaders()
+      });
+      if (!r1.ok) {
+        const err = await r1.json();
+        return showMessage(form.parentNode, `Error estado: ${err.error}`, 'error');
+      }
+
+      // 2) Eliminar el ítem original
+      const p2 = new URLSearchParams({
+        order_id: orderId,
+        line_index: lineIndex,
+        woocommerce_url: qc.woocommerce_url,
+        consumer_key: qc.consumer_key,
+        consumer_secret: qc.consumer_secret
+      });
+      const r2 = await fetch(`${API_BASE}/eliminar-item?${p2}`, {
+        method: 'DELETE',
+        headers: getHeaders()
+      });
+      if (!r2.ok) {
+        const err = await r2.json();
+        return showMessage(form.parentNode, `Error eliminar: ${err.error}`, 'error');
+      }
+
+      // 3) Añadir el nuevo ítem
+      const payload = {
+        ...qc,
+        product_id: Number(productId),
+        variation_id: Number(newVarId),
+        quantity: Number(newQty)
+      };
+      const r3 = await fetch(`${API_BASE}/anadir-item?order_id=${orderId}`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify(payload)
+      });
+      if (r3.ok) {
+        showMessage(form.parentNode, 'Artículo actualizado');
+        await loadPedidos();
+      } else {
+        const err = await r3.json();
+        showMessage(form.parentNode, `Error añadir: ${err.error}`, 'error');
+      }
+    });
+
+    // Insertar el form **justo después** del botón pulsado
+    btn.insertAdjacentElement('afterend', form);
+  }
+
+  // Alternar visibilidad del form
+  form.style.display = form.style.display === 'none' ? 'block' : 'none';
+  return;
+}
+
+
+// 6) Añadir artículo
+if (e.target.matches('.btn-add-item')) {
+  const orderId = e.target.dataset.orderId;
+  let form = e.target.parentNode.querySelector('.add-item-form');
+  if (!form) {
+    form = document.createElement('div');
+    form.className = 'add-item-form mt-2 mb-3';
+
+    // Select de productos con ancho completo
+    const selProd = document.createElement('select');
+    selProd.className = 'form-control mb-2';
+    selProd.innerHTML = `<option value="">— Selecciona producto —</option>`;
+    productsList.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.id;
+      opt.text = p.name;
+      selProd.appendChild(opt);
+    });
+    form.appendChild(selProd);
+
+    // Select de variaciones con ancho completo (oculto inicialmente)
+    const selVar = document.createElement('select');
+    selVar.className = 'form-control mb-2';
+    selVar.innerHTML = `<option value="">— Selecciona variación —</option>`;
+    selVar.style.display = 'none';
+    form.appendChild(selVar);
+
+    // Input de cantidad con ancho completo
+    const qtyInput = document.createElement('input');
+    qtyInput.type = 'number';
+    qtyInput.min = '1';
+    qtyInput.placeholder = 'Cantidad';
+    qtyInput.className = 'form-control mb-3';
+    form.appendChild(qtyInput);
+
+    // Botones Aceptar y Cancelar en la misma línea
+    const btnOk = document.createElement('button');
+    btnOk.innerText = '✓ Aceptar';
+    btnOk.disabled = true;
+    btnOk.className = 'btn btn-success mr-2';
+
+    const btnCancel = document.createElement('button');
+    btnCancel.innerText = '✖ Cancelar';
+    btnCancel.className = 'btn btn-danger';
+    btnCancel.addEventListener('click', () => { form.style.display = 'none'; });
+
+    const btnGroup = document.createElement('div');
+    btnGroup.className = 'd-flex';
+    btnGroup.append(btnOk, btnCancel);
+    form.appendChild(btnGroup);
+
+    // Al cambiar producto, cargamos variaciones
+    selProd.addEventListener('change', async () => {
+      const prodId = selProd.value;
+      selVar.innerHTML = `<option value="">— Selecciona variación —</option>`;
+      if (!prodId) {
+        selVar.style.display = 'none';
+        btnOk.disabled = true;
+        return;
+      }
+      const qc = getWooConfig();
+      const paramsVar = new URLSearchParams({
+        product_id: prodId,
+        ...qc
+      });
+      const resVar = await fetch(`${API_BASE}/get-variaciones?${paramsVar}`, { headers: getHeaders() });
+      const vars = await resVar.json();
+      if (Array.isArray(vars) && vars.length) {
+        vars.forEach(v => {
+          const opt = document.createElement('option');
+          opt.value = v.id;
+          opt.text = v.attributes.map(a => `${a.name}: ${a.option}`).join(', ');
+          selVar.appendChild(opt);
+        });
+        selVar.style.display = '';
+      } else {
+        selVar.style.display = 'none';
+      }
+      btnOk.disabled = !qtyInput.value;
+    });
+
+    // Al cambiar cantidad, habilitamos/deshabilitamos Aceptar
+    qtyInput.addEventListener('input', () => {
+      btnOk.disabled = !(selProd.value && qtyInput.value);
+    });
+
+    // Evento de Aceptar: añadimos el artículo
+    btnOk.addEventListener('click', async () => {
+      const prodId = selProd.value;
+      const varId = selVar.style.display === 'none' ? null : selVar.value;
+      const qty = qtyInput.value;
+      if (!prodId || !qty || (selVar.style.display !== 'none' && !varId)) {
+        return alert('Completa todos los campos.');
+      }
+      const body = {
+        product_id: Number(prodId),
+        quantity: Number(qty),
+        ...(varId ? { variation_id: Number(varId) } : {})
+      };
+      const payload = { ...getWooConfig(), ...body };
+      const res = await fetch(`${API_BASE}/anadir-item?order_id=${orderId}`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        showMessage(form.parentNode, 'Artículo añadido');
+        await loadPedidos();
+        form.style.display = 'none';
       } else {
         const err = await res.json();
         showMessage(form.parentNode, `Error: ${err.error}`, 'error');
       }
-      return;
-    }
+    });
 
-    // 4) Eliminar artículo
-    if (e.target.matches('.btn-delete-item')) {
-      const orderId  = e.target.dataset.orderId;
-      const lineIndex = e.target.dataset.index;
-      let form = e.target.parentNode.querySelector('.delete-item-form');
-      if (!form) {
-        form = document.createElement('div');
-        form.className = 'delete-item-form';
-        form.style.margin = '8px 0';
-        const info = document.createElement('p');
-        info.innerText =
-          'Antes de eliminar este artículo, el pedido pasará a "Pendiente de pago". ¿Continuar?';
-        form.appendChild(info);
-        const btnConfirm = document.createElement('button');
-        btnConfirm.innerText = 'Confirmar';
-        btnConfirm.style.margin = '0 4px';
-        btnConfirm.addEventListener('click', async () => {
-          const qc = getWooConfig();
-          const paramsStatus = new URLSearchParams({
-            order_id: orderId,
-            status: 'pending',
-            woocommerce_url: qc.woocommerce_url,
-            consumer_key: qc.consumer_key,
-            consumer_secret: qc.consumer_secret
-          });
-          const resStatus = await fetch(`${API_BASE}/cambiar-estado?${paramsStatus}`, {
-            method: 'PUT',
-            headers: getHeaders()
-          });
-          if (!resStatus.ok) {
-            const err = await resStatus.json();
-            showMessage(form.parentNode, `Error al cambiar estado: ${err.error}`, 'error');
-            return;
-          }
-          const paramsDel = new URLSearchParams({
-            order_id: orderId,
-            line_index: lineIndex,
-            woocommerce_url: qc.woocommerce_url,
-            consumer_key: qc.consumer_key,
-            consumer_secret: qc.consumer_secret
-          });
-          const resDel = await fetch(`${API_BASE}/eliminar-item?${paramsDel}`, {
-            method: 'DELETE',
-            headers: getHeaders()
-          });
-          if (resDel.ok) {
-            showMessage(form.parentNode, 'Artículo eliminado');
-            await loadPedidos();
-          } else {
-            const err2 = await resDel.json();
-            showMessage(form.parentNode, `Error al eliminar: ${err2.error}`, 'error');
-          }
-        });
-        form.appendChild(btnConfirm);
-        const btnCancel = document.createElement('button');
-        btnCancel.innerText = 'Cancelar';
-        btnCancel.addEventListener('click', () => { form.style.display = 'none'; });
-        form.appendChild(btnCancel);
-        e.target.parentNode.appendChild(form);
-      }
-      form.style.display = form.style.display === 'none' ? 'block' : 'none';
-      return;
-    }
-
-    // 5) Editar talla/cantidad
-    if (e.target.matches('.btn-edit-item')) {
-      const orderId    = e.target.dataset.orderId;
-      const lineIndex  = e.target.dataset.index;
-      const productId  = e.target.dataset.productId;
-      const oldVarId   = e.target.dataset.variationId;
-      const oldQuantity= e.target.dataset.quantity;
-      let form = e.target.parentNode.querySelector('.edit-item-form');
-      if (!form) {
-        form = document.createElement('div');
-        form.className = 'edit-item-form';
-        form.style.margin = '8px 0';
-        const selVar = document.createElement('select');
-        selVar.innerHTML = `<option value="">— Selecciona variación —</option>`;
-        form.appendChild(selVar);
-        const qtyInput = document.createElement('input');
-        qtyInput.type = 'number';
-        qtyInput.min  = '1';
-        qtyInput.value= oldQuantity;
-        qtyInput.placeholder = 'Cantidad';
-        qtyInput.style.margin = '0 4px';
-        form.appendChild(qtyInput);
-        const btnOk = document.createElement('button');
-        btnOk.innerText = 'Aceptar';
-        btnOk.disabled = true;
-        form.appendChild(btnOk);
-        const btnCancel = document.createElement('button');
-        btnCancel.innerText = 'Cancelar';
-        btnCancel.style.margin = '0 4px';
-        btnCancel.addEventListener('click', () => form.style.display = 'none');
-        form.appendChild(btnCancel);
-        selVar.addEventListener('change', () => {
-          btnOk.disabled = !(selVar.value && qtyInput.value);
-        });
-        qtyInput.addEventListener('input', () => {
-          btnOk.disabled = !(selVar.value && qtyInput.value);
-        });
-        (async () => {
-          const { woocommerce_url, consumer_key, consumer_secret } = getWooConfig();
-          const paramsVar = new URLSearchParams({
-            product_id:  productId,
-            woocommerce_url, consumer_key, consumer_secret
-          });
-          const resVar = await fetch(`${API_BASE}/get-variaciones?${paramsVar}`, {
-            headers: getHeaders()
-          });
-          const vars = await resVar.json();
-          vars.forEach(v => {
-            const opt = document.createElement('option');
-            opt.value = v.id;
-            opt.text  = v.attributes.map(a => `${a.name}: ${a.option}`).join(', ');
-            if (v.id == oldVarId) opt.selected = true;
-            selVar.appendChild(opt);
-          });
-          if (selVar.value && qtyInput.value) btnOk.disabled = false;
-        })();
-        btnOk.addEventListener('click', async () => {
-          const newVarId = selVar.value;
-          const newQty   = qtyInput.value;
-          const qc       = getWooConfig();
-          const p1 = new URLSearchParams({
-            order_id: orderId,
-            status: 'pending',
-            woocommerce_url: qc.woocommerce_url,
-            consumer_key: qc.consumer_key,
-            consumer_secret: qc.consumer_secret
-          });
-          const r1 = await fetch(`${API_BASE}/cambiar-estado?${p1}`, {
-            method: 'PUT', headers: getHeaders()
-          });
-          if (!r1.ok) {
-            const err = await r1.json();
-            return showMessage(form.parentNode, `Error estado: ${err.error}`, 'error');
-          }
-          const p2 = new URLSearchParams({
-            order_id: orderId,
-            line_index: lineIndex,
-            woocommerce_url: qc.woocommerce_url,
-            consumer_key: qc.consumer_key,
-            consumer_secret: qc.consumer_secret
-          });
-          const r2 = await fetch(`${API_BASE}/eliminar-item?${p2}`, {
-            method: 'DELETE', headers: getHeaders()
-          });
-          if (!r2.ok) {
-            const err = await r2.json();
-            return showMessage(form.parentNode, `Error eliminar: ${err.error}`, 'error');
-          }
-          const payload = {
-            ...qc,
-            product_id:   Number(productId),
-            variation_id: Number(newVarId),
-            quantity:     Number(newQty)
-          };
-          const r3 = await fetch(`${API_BASE}/anadir-item?order_id=${orderId}`, {
-            method: 'POST',
-            headers: getHeaders(),
-            body: JSON.stringify(payload)
-          });
-          if (r3.ok) {
-            showMessage(form.parentNode, 'Artículo actualizado');
-            await loadPedidos();
-          } else {
-            const err = await r3.json();
-            showMessage(form.parentNode, `Error añadir: ${err.error}`, 'error');
-          }
-        });
-        e.target.parentNode.appendChild(form);
-      }
-      form.style.display = form.style.display === 'none' ? 'block' : 'none';
-      return;
-    }
-
-    // 6) Añadir artículo
-    if (e.target.matches('.btn-add-item')) {
-      const orderId = e.target.dataset.orderId;
-      let form = e.target.parentNode.querySelector('.add-item-form');
-      if (!form) {
-        form = document.createElement('div');
-        form.className = 'add-item-form';
-        form.style.margin = '8px 0';
-        const selProd = document.createElement('select');
-        selProd.innerHTML = `<option value="">— Selecciona producto —</option>`;
-        productsList.forEach(p => {
-          const opt = document.createElement('option');
-          opt.value = p.id;
-          opt.text  = p.name;
-          selProd.appendChild(opt);
-        });
-        form.appendChild(selProd);
-        const selVar = document.createElement('select');
-        selVar.style.display = 'none';
-        selVar.innerHTML = `<option value="">— Selecciona variación —</option>`;
-        form.appendChild(selVar);
-        const qtyInput = document.createElement('input');
-        qtyInput.type = 'number';
-        qtyInput.min = '1';
-        qtyInput.placeholder = 'Cantidad';
-        qtyInput.style.margin = '0 4px';
-        form.appendChild(qtyInput);
-        const btnOk = document.createElement('button');
-        btnOk.innerText = 'Aceptar';
-        btnOk.disabled = true;
-        form.appendChild(btnOk);
-        const btnCancel = document.createElement('button');
-        btnCancel.innerText = 'Cancelar';
-        btnCancel.style.margin = '0 4px';
-        btnCancel.addEventListener('click', () => { form.style.display = 'none'; });
-        form.appendChild(btnCancel);
-        selProd.addEventListener('change', async () => {
-          const prodId = selProd.value;
-          selVar.innerHTML = `<option value="">— Selecciona variación —</option>`;
-          if (!prodId) {
-            selVar.style.display = 'none';
-            btnOk.disabled = true;
-            return;
-          }
-          const qc = getWooConfig();
-          const paramsVar = new URLSearchParams({
-            product_id:   prodId,
-            ...qc
-          });
-          const resVar = await fetch(`${API_BASE}/get-variaciones?${paramsVar}`, {
-            headers: getHeaders()
-          });
-          const vars = await resVar.json();
-          if (Array.isArray(vars) && vars.length) {
-            vars.forEach(v => {
-              const opt = document.createElement('option');
-              opt.value = v.id;
-              opt.text = v.attributes.map(a => `${a.name}: ${a.option}`).join(', ');
-              selVar.appendChild(opt);
-            });
-            selVar.style.display = '';
-          } else {
-            selVar.style.display = 'none';
-          }
-          btnOk.disabled = false;
-        });
-        btnOk.addEventListener('click', async () => {
-          const prodId = selProd.value;
-          const varId  = selVar.style.display==='none' ? null : selVar.value;
-          const qty    = qtyInput.value;
-          if (!prodId || !qty || (selVar.style.display!=='none' && !varId)) {
-            return alert('Completa todos los campos.');
-          }
-          const body = {
-            product_id: Number(prodId),
-            quantity:   Number(qty),
-            ...(varId ? { variation_id: Number(varId) } : {})
-          };
-          const payload = {
-            ...getWooConfig(),
-            ...body
-          };
-          const res = await fetch(`${API_BASE}/anadir-item?order_id=${orderId}`, {
-            method: 'POST',
-            headers: getHeaders(),
-            body: JSON.stringify(payload)
-          });
-          if (res.ok) {
-            showMessage(form.parentNode, 'Artículo añadido');
-            await loadPedidos();
-          } else {
-            const err = await res.json();
-            showMessage(form.parentNode, `Error: ${err.error}`, 'error');
-          }
-        });
-        e.target.parentNode.appendChild(form);
-      }
-      form.style.display = form.style.display === 'none' ? 'block' : 'none';
-      return;
-    }
+    // Insertar formulario justo debajo del botón
+    e.target.insertAdjacentElement('afterend', form);
+  }
+  form.style.display = form.style.display === 'none' ? 'block' : 'none';
+  return;
+}
   });
 
   // Initialize everything

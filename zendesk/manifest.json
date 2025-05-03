@@ -34,12 +34,6 @@
   },
   "parameters": [
     {
-      "name": "x_zendesk_secret",
-      "type": "text",
-      "required": true,
-      "secure": false
-    },
-    {
       "name": "woocommerce_url",
       "type": "text",
       "required": true,
