@@ -34,6 +34,12 @@
   },
   "parameters": [
     {
+      "name": "x_zendesk_secret",
+      "type": "text",
+      "required": true,
+      "secure": true
+    },
+    {
       "name": "woocommerce_url",
       "type": "text",
       "required": true,
@@ -69,7 +75,6 @@
       "required": true,
       "secure": false
     },
-
     {
       "name": "paypal_mode",
       "type": "text",
@@ -77,6 +82,5 @@
       "secure": false,
       "default": "live"
     }
-
   ]
 }

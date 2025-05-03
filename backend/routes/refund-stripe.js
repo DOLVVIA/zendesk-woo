@@ -2,14 +2,8 @@ const express = require('express');
 const Stripe = require('stripe');
 const router = express.Router();
 
-// POST /api/refund-stripe
-// Body JSON:
-// {
-//   chargeId: string,
-//   amount: number,           // en céntimos
-//   stripe_secret_key: string
-// }
-router.post('/refund-stripe', async (req, res) => {
+// Ahora atendemos POST /api/refund-stripe   <— ojo al cambio aquí
+router.post('/', async (req, res) => {
   // 1) Validar cabecera x-zendesk-secret
   const incomingSecret = req.get('x-zendesk-secret');
   if (!incomingSecret || incomingSecret !== process.env.ZENDESK_SHARED_SECRET) {
