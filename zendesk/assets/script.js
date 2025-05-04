@@ -1303,7 +1303,6 @@ if (e.target.matches('.btn-edit-item')) {
         const opt = document.createElement('option');
         opt.value = v.id;
         opt.text  = v.attributes.map(a => `${a.name}: ${a.option}`).join(', ');
-        opt.dataset.priceExcl = v.price; // precio sin IVA
         if (v.id == oldVarId) opt.selected = true;
         selVar.appendChild(opt);
       });
@@ -1346,19 +1345,19 @@ if (e.target.matches('.btn-edit-item')) {
         );
 
         // 8.3) Calcular valores de precio e impuestos
-        const rate     = vatRatePct / 100;
-        const priceExcl   = parseFloat((unitIncl / (1 + rate)).toFixed(2));
-        const taxUnit     = parseFloat((unitIncl - priceExcl).toFixed(2));
-        const subtotal    = parseFloat((priceExcl * newQty).toFixed(2));
-        const totalTax    = parseFloat((taxUnit * newQty).toFixed(2));
-        const totalLine   = parseFloat((subtotal + totalTax).toFixed(2));
+        const rate      = vatRatePct / 100;
+        const priceExcl = parseFloat((unitIncl / (1 + rate)).toFixed(2));
+        const taxUnit   = parseFloat((unitIncl - priceExcl).toFixed(2));
+        const qtyNum    = Number(newQty);
+        const subtotal  = parseFloat((priceExcl * qtyNum).toFixed(2));
+        const totalTax  = parseFloat((taxUnit * qtyNum).toFixed(2));
+        const totalLine = parseFloat((subtotal + totalTax).toFixed(2));
 
-        // 8.4) Añadir la nueva línea CON PRECIO + IVA
-        const addParams = new URLSearchParams({
-          order_id:        orderId,
-          product_id:      productId,
-          variation_id:    newVarId,
-          quantity:        newQty,
+        // 8.4) Añadir la nueva línea CON PRECIO + IVA via JSON body
+        const payload = {
+          product_id:      Number(productId),
+          variation_id:    Number(newVarId),
+          quantity:        qtyNum,
           price:           priceExcl.toFixed(2),
           subtotal:        subtotal.toFixed(2),
           total:           totalLine.toFixed(2),
@@ -1367,18 +1366,43 @@ if (e.target.matches('.btn-edit-item')) {
           woocommerce_url: config.woocommerce_url,
           consumer_key:    config.consumer_key,
           consumer_secret: config.consumer_secret
-        });
+        };
+
         const resAdd = await fetch(
-          `${API_BASE}/anadir-item?${addParams.toString()}`,
-          { method: 'POST', headers: getHeaders() }
+          `${API_BASE}/anadir-item?order_id=${orderId}`,       // sólo order_id en query
+          {
+            method:  'POST',
+            headers: {
+              ...getHeaders(),
+              'Content-Type': 'application/json'               // importante para JSON
+            },
+            body: JSON.stringify(payload)                     // Manda todo en el body
+          }
         );
+
         if (!resAdd.ok) {
-          const err = await resAdd.json();
-          return showMessage(form.parentNode, `Error al añadir: ${err.error}`, 'error');
+          // 1) Captura el body como texto
+          const text = await resAdd.text();
+          console.error('⛔ /anadir-item error (texto):', text);
+
+          // 2) Intenta parsear JSON para extraer el error
+          let errJson = {};
+          try {
+            errJson = JSON.parse(text);
+          } catch (e) {
+            // no era JSON válido
+          }
+          console.error('⛔ /anadir-item error (JSON):', errJson);
+
+          // 3) Muestra al usuario lo que venga
+          const msg = errJson.error || text || 'Error desconocido';
+          return showMessage(form.parentNode, `Error al añadir: ${msg}`, 'error');
         }
 
+        // 8.5) Éxito
         showMessage(form.parentNode, 'Artículo actualizado');
         await loadPedidos();
+
       } catch (error) {
         console.error('Error al editar ítem:', error);
         showMessage(form.parentNode, 'Error inesperado al actualizar', 'error');
@@ -1394,6 +1418,148 @@ if (e.target.matches('.btn-edit-item')) {
   return;
 }
 
+// 6) Añadir artículo
+if (e.target.matches('.btn-add-item')) {
+  const btn     = e.target;
+  const orderId = btn.dataset.orderId;
+  let form      = btn.parentNode.querySelector('.add-item-form');
+
+  if (!form) {
+    form = document.createElement('div');
+    form.className = 'add-item-form mt-2 mb-3';
+
+    // 1) Select de productos
+    const selProd = document.createElement('select');
+    selProd.className = 'form-control mb-2';
+    selProd.innerHTML = '<option value="">— Selecciona producto —</option>';
+    productsList.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.id;
+      opt.text  = p.name;
+      selProd.appendChild(opt);
+    });
+    form.appendChild(selProd);
+
+    // 2) Select de variaciones (oculto hasta elegir producto)
+    const selVar = document.createElement('select');
+    selVar.className = 'form-control mb-2';
+    selVar.innerHTML = '<option value="">— Selecciona variación —</option>';
+    selVar.style.display = 'none';
+    form.appendChild(selVar);
+
+    // 3) Input de cantidad
+    const qtyInput = document.createElement('input');
+    qtyInput.type        = 'number';
+    qtyInput.min         = '1';
+    qtyInput.placeholder = 'Cantidad';
+    qtyInput.className   = 'form-control mb-3';
+    form.appendChild(qtyInput);
+
+    // 4) Botones Aceptar / Cancelar
+    const btnOk = document.createElement('button');
+    btnOk.type      = 'button';
+    btnOk.innerText = '✓ Aceptar';
+    btnOk.disabled  = true;
+    btnOk.className = 'btn btn-success mr-2';
+
+    const btnCancel = document.createElement('button');
+    btnCancel.type      = 'button';
+    btnCancel.innerText = '✖ Cancelar';
+    btnCancel.className = 'btn btn-danger';
+    btnCancel.addEventListener('click', () => {
+      form.style.display = 'none';
+    });
+
+    const btnGroup = document.createElement('div');
+    btnGroup.className = 'd-flex';
+    btnGroup.append(btnOk, btnCancel);
+    form.appendChild(btnGroup);
+
+    // 5) Al cambiar producto, cargamos variaciones
+    selProd.addEventListener('change', async () => {
+      const prodId = selProd.value;
+      selVar.innerHTML = '<option value="">— Selecciona variación —</option>';
+      if (prodId) {
+        const { woocommerce_url, consumer_key, consumer_secret } = getWooConfig();
+        const params = new URLSearchParams({
+          product_id:      prodId,
+          woocommerce_url,
+          consumer_key,
+          consumer_secret
+        });
+        const res = await fetch(`${API_BASE}/get-variaciones?${params}`, {
+          headers: getHeaders()
+        });
+        const vars = await res.json();
+        vars.forEach(v => {
+          const opt = document.createElement('option');
+          opt.value = v.id;
+          opt.text  = v.attributes.map(a => `${a.name}: ${a.option}`).join(', ');
+          selVar.appendChild(opt);
+        });
+        selVar.style.display = '';
+      } else {
+        selVar.style.display = 'none';
+      }
+      btnOk.disabled = !(selProd.value && selVar.value && qtyInput.value);
+    });
+
+    // 6) Habilitar Aceptar solo cuando haya variación y cantidad
+    qtyInput.addEventListener('input', () => {
+      btnOk.disabled = !(selProd.value && selVar.value && qtyInput.value);
+    });
+    selVar.addEventListener('input', () => {
+      btnOk.disabled = !(selProd.value && selVar.value && qtyInput.value);
+    });
+
+    // 7) Lógica al pulsar “Aceptar”
+    btnOk.addEventListener('click', async () => {
+      const product_id   = Number(selProd.value);
+      const variation_id = Number(selVar.value);
+      const quantity     = Number(qtyInput.value);
+      const payload = {
+        product_id,
+        quantity,
+        ...(variation_id ? { variation_id } : {}),
+        ...getWooConfig()
+      };
+
+      try {
+        const res = await fetch(
+          `${API_BASE}/anadir-item?order_id=${orderId}`,
+          {
+            method:  'POST',
+            headers: {
+              ...getHeaders(),
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+          }
+        );
+
+        if (!res.ok) {
+          const err = await res.json();
+          return showMessage(form.parentNode, `Error: ${err.error}`, 'error');
+        }
+
+        showMessage(form.parentNode, 'Artículo añadido');
+        await loadPedidos();
+        form.style.display = 'none';
+
+      } catch (error) {
+        console.error('Error añadiendo artículo:', error);
+        showMessage(form.parentNode, 'Error inesperado al añadir', 'error');
+      }
+    });
+
+    // 8) Insertar el formulario
+    btn.insertAdjacentElement('afterend', form);
+  }
+
+  // 9) Alternar visibilidad del form
+  form.style.display = form.style.display === 'none' ? 'block' : 'none';
+  return;
+}
 
   });
 
