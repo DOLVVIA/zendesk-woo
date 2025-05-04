@@ -1011,7 +1011,7 @@ if (e.target.matches('.btn-delete-item')) {
   return;
 }
 
-// 5) Editar talla, cantidad y precio (IVA incluido)
+// 5) Editar talla/cantidad (flujo original)
 if (e.target.matches('.btn-edit-item')) {
   const btn         = e.target;
   const orderId     = btn.dataset.orderId;
@@ -1019,23 +1019,20 @@ if (e.target.matches('.btn-edit-item')) {
   const productId   = btn.dataset.productId;
   const oldVarId    = btn.dataset.variationId;
   const oldQuantity = btn.dataset.quantity;
-  // Aquí suponemos que al crear el botón añadiste:
-  // btn.dataset.total = item.total;
-  const oldTotal    = parseFloat(btn.dataset.total) || 0;
 
-  // Intentamos leer el formulario justo después del botón
+  // Intentamos leer el form justo después del botón
   let form = btn.nextElementSibling;
   if (!form || !form.classList.contains('edit-item-form')) {
     form = document.createElement('div');
     form.className = 'edit-item-form mt-2 mb-3';
 
-    // 1) Select de variaciones
+    // Select de variaciones
     const selVar = document.createElement('select');
     selVar.className = 'form-control mb-2';
     selVar.innerHTML = '<option value="">— Selecciona variación —</option>';
     form.appendChild(selVar);
 
-    // 2) Input de cantidad
+    // Input de cantidad
     const qtyInput = document.createElement('input');
     qtyInput.type        = 'number';
     qtyInput.min         = '1';
@@ -1044,27 +1041,7 @@ if (e.target.matches('.btn-edit-item')) {
     qtyInput.className   = 'form-control mb-3';
     form.appendChild(qtyInput);
 
-    // 3) Input precio unitario (IVA incl.)
-    const priceInclInput = document.createElement('input');
-    priceInclInput.type        = 'number';
-    priceInclInput.step        = '0.01';
-    priceInclInput.min         = '0.01';
-    priceInclInput.value       = (oldTotal / oldQuantity).toFixed(2);
-    priceInclInput.placeholder = 'Precio unit. (IVA incl.)';
-    priceInclInput.className   = 'form-control mb-2';
-    form.appendChild(priceInclInput);
-
-    // 4) Input % IVA
-    const vatInput = document.createElement('input');
-    vatInput.type        = 'number';
-    vatInput.step        = '0.01';
-    vatInput.min         = '0';
-    vatInput.value       = '21';
-    vatInput.placeholder = '% IVA';
-    vatInput.className   = 'form-control mb-3';
-    form.appendChild(vatInput);
-
-    // 5) Botones Aceptar / Cancelar
+    // Botones Aceptar / Cancelar
     const btnOk = document.createElement('button');
     btnOk.type      = 'button';
     btnOk.innerText = '✓ Aceptar';
@@ -1084,21 +1061,14 @@ if (e.target.matches('.btn-edit-item')) {
     btnGroup.append(btnOk, btnCancel);
     form.appendChild(btnGroup);
 
-    // 6) Activar “Aceptar” solo si hay datos
+    // Habilitar “Aceptar” sólo si hay variación y cantidad
     function toggleOk() {
-      btnOk.disabled = !(
-        selVar.value &&
-        qtyInput.value &&
-        priceInclInput.value &&
-        vatInput.value
-      );
+      btnOk.disabled = !(selVar.value && qtyInput.value);
     }
     selVar.addEventListener('input', toggleOk);
     qtyInput.addEventListener('input', toggleOk);
-    priceInclInput.addEventListener('input', toggleOk);
-    vatInput.addEventListener('input', toggleOk);
 
-    // 7) Cargar variaciones
+    // Cargar variaciones
     (async () => {
       const config = getWooConfig();
       const paramsVar = new URLSearchParams({
@@ -1121,21 +1091,19 @@ if (e.target.matches('.btn-edit-item')) {
       toggleOk();
     })();
 
-    // 8) Al pulsar “Aceptar”
+    // Al pulsar “Aceptar”
     btnOk.addEventListener('click', async () => {
       const newVarId = selVar.value;
       const newQty   = qtyInput.value;
-      const unitIncl = parseFloat(priceInclInput.value.replace(',', '.'));
-      const vatRate  = parseFloat(vatInput.value.replace(',', '.'));
       const config   = getWooConfig();
 
       try {
-        // 8.1) Cambiar a pending
+        // 1) Cambiar a pending
         await fetch(
           `${API_BASE}/cambiar-estado?` +
           new URLSearchParams({
-            order_id:       orderId,
-            status:         'pending',
+            order_id:        orderId,
+            status:          'pending',
             woocommerce_url: config.woocommerce_url,
             consumer_key:    config.consumer_key,
             consumer_secret: config.consumer_secret
@@ -1143,12 +1111,12 @@ if (e.target.matches('.btn-edit-item')) {
           { method: 'PUT', headers: getHeaders() }
         );
 
-        // 8.2) Eliminar la línea original
+        // 2) Eliminar la línea original
         await fetch(
           `${API_BASE}/eliminar-item?` +
           new URLSearchParams({
-            order_id:       orderId,
-            line_index:     lineIndex,
+            order_id:        orderId,
+            line_index:      lineIndex,
             woocommerce_url: config.woocommerce_url,
             consumer_key:    config.consumer_key,
             consumer_secret: config.consumer_secret
@@ -1156,25 +1124,23 @@ if (e.target.matches('.btn-edit-item')) {
           { method: 'DELETE', headers: getHeaders() }
         );
 
-        // 8.3) Editar con precio incluido y VAT
-        const paramsEdit = new URLSearchParams({
+        // 3) Añadir la nueva línea
+        const addParams = new URLSearchParams({
           order_id:        orderId,
-          line_index:      lineIndex,
+          product_id:      productId,
           variation_id:    newVarId,
           quantity:        newQty,
-          price_incl_tax:  unitIncl,
-          vat_rate:        vatRate,
           woocommerce_url: config.woocommerce_url,
           consumer_key:    config.consumer_key,
           consumer_secret: config.consumer_secret
         });
-        const resEdit = await fetch(
-          `${API_BASE}/editar-item?${paramsEdit.toString()}`,
-          { method: 'PUT', headers: getHeaders() }
+        const resAdd = await fetch(
+          `${API_BASE}/anadir-item?${addParams.toString()}`,
+          { method: 'POST', headers: getHeaders() }
         );
-        if (!resEdit.ok) {
-          const err = await resEdit.json();
-          return showMessage(form.parentNode, `Error al actualizar: ${err.error}`, 'error');
+        if (!resAdd.ok) {
+          const err = await resAdd.json();
+          return showMessage(form.parentNode, `Error al añadir: ${err.error}`, 'error');
         }
 
         showMessage(form.parentNode, 'Artículo actualizado');
@@ -1185,14 +1151,15 @@ if (e.target.matches('.btn-edit-item')) {
       }
     });
 
-    // 9) Insertar el form justo después del botón
+    // Insertar el form justo después del botón
     btn.insertAdjacentElement('afterend', form);
   }
 
-  // 10) Alternar visibilidad del form
+  // Alternar visibilidad del form
   form.style.display = form.style.display === 'none' ? 'block' : 'none';
   return;
 }
+
 
   });
 
