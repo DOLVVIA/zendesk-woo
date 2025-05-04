@@ -91,20 +91,17 @@ router.post('/', async (req, res) => {
     }
     console.log('⏳ Línea construida para añadir:', lineItem);
 
-    // 6) Forzar estado PENDING + aplicar la nueva línea
-    console.log('⏳ Actualizando a PENDING con nueva línea…');
+    // 6) Poner a PENDING **sin** tocar line_items
+    console.log('⏳ Actualizando a PENDING (sin añadir línea)…');
     await updateOrder(
       { woocommerce_url, consumer_key, consumer_secret },
       order_id,
-      {
-        status:     'pending',
-        line_items: [ lineItem ]
-      }
+      { status: 'pending' }
     );
-    console.log('✅ Pedido puesto en pending');
+    console.log('✅ Pedido en pending');
 
-    // 7) Restaurar estado original con la misma línea
-    console.log('⏳ Restaurando estado original:', originalStatus);
+    // 7) Restaurar estado original **añadiendo** solo una vez la línea
+    console.log('⏳ Restaurando estado original y añadiendo línea…');
     const updated = await updateOrder(
       { woocommerce_url, consumer_key, consumer_secret },
       order_id,
@@ -113,14 +110,19 @@ router.post('/', async (req, res) => {
         line_items: [ lineItem ]
       }
     );
-    console.log('✅ Estado restaurado, línea añadida correctamente');
+    console.log('✅ Estado restaurado y línea añadida');
 
     // 8) Devolver el pedido actualizado
-    res.json(updated);
+    return res.json(updated);
 
   } catch (err) {
-    console.error('❌ Error al añadir item al pedido:', err.response?.data || err.message);
-    res.status(500).json({ error: 'No se pudo añadir el artículo al pedido.' });
+    console.error(
+      '❌ Error al añadir item al pedido:',
+      err.response?.data || err.message
+    );
+    return res.status(500).json({
+      error: 'No se pudo añadir el artículo al pedido.'
+    });
   }
 });
 
