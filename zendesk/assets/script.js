@@ -1018,6 +1018,8 @@ if (e.target.matches('.btn-edit-item')) {
   const productId   = btn.dataset.productId;
   const oldVarId    = btn.dataset.variationId;
   const oldQuantity = btn.dataset.quantity;
+  // Obtenemos el total actual del item para calcular precio unitario
+  const oldTotal    = parseFloat(btn.parentNode.querySelector('.precio-total').innerText) || 0;
 
   // Intentamos leer el form justo después del botón
   let form = btn.nextElementSibling;
@@ -1041,6 +1043,26 @@ if (e.target.matches('.btn-edit-item')) {
     qtyInput.className = 'form-control mb-3';
     form.appendChild(qtyInput);
 
+    // Input precio unitario (IVA incl.)
+    const priceInclInput = document.createElement('input');
+    priceInclInput.type = 'number';
+    priceInclInput.step = '0.01';
+    priceInclInput.min = '0.01';
+    priceInclInput.value = (oldTotal / oldQuantity).toFixed(2);
+    priceInclInput.placeholder = 'Precio unit. (IVA incl.)';
+    priceInclInput.className = 'form-control mb-2';
+    form.appendChild(priceInclInput);
+
+    // Input % IVA
+    const vatInput = document.createElement('input');
+    vatInput.type = 'number';
+    vatInput.step = '0.01';
+    vatInput.min = '0';
+    vatInput.value = '21';
+    vatInput.placeholder = '% IVA';
+    vatInput.className = 'form-control mb-3';
+    form.appendChild(vatInput);
+
     // Botones Aceptar/Cancelar lado a lado
     const btnOk = document.createElement('button');
     btnOk.type = 'button';
@@ -1059,13 +1081,11 @@ if (e.target.matches('.btn-edit-item')) {
     btnGroup.append(btnOk, btnCancel);
     form.appendChild(btnGroup);
 
-    // Habilitar el botón Aceptar sólo cuando haya variación y cantidad
-    selVar.addEventListener('change', () => {
-      btnOk.disabled = !(selVar.value && qtyInput.value);
-    });
-    qtyInput.addEventListener('input', () => {
-      btnOk.disabled = !(selVar.value && qtyInput.value);
-    });
+    // Habilitar el botón Aceptar solo cuando todos los campos estén completos
+    function toggleOk() {
+      btnOk.disabled = !(selVar.value && qtyInput.value && priceInclInput.value && vatInput.value);
+    }
+    [selVar, qtyInput, priceInclInput, vatInput].forEach(el => el.addEventListener('input', toggleOk));
 
     // Cargar variaciones desde tu API
     (async () => {
@@ -1087,67 +1107,62 @@ if (e.target.matches('.btn-edit-item')) {
         if (v.id == oldVarId) opt.selected = true;
         selVar.appendChild(opt);
       });
-      if (selVar.value && qtyInput.value) btnOk.disabled = false;
+      toggleOk();
     })();
 
     // Lógica al pulsar “Aceptar”
     btnOk.addEventListener('click', async () => {
-      const newVarId = selVar.value;
-      const newQty   = qtyInput.value;
-      const qc       = getWooConfig();
+      const newVarId   = selVar.value;
+      const newQty     = qtyInput.value;
+      const unitIncl   = parseFloat(priceInclInput.value.replace(',', '.'));
+      const vatRate    = parseFloat(vatInput.value.replace(',', '.'));
+      const qc         = getWooConfig();
 
-      // 1) Cambiar a pending
-      const p1 = new URLSearchParams({
-        order_id: orderId,
-        status: 'pending',
-        woocommerce_url: qc.woocommerce_url,
-        consumer_key: qc.consumer_key,
-        consumer_secret: qc.consumer_secret
-      });
-      const r1 = await fetch(`${API_BASE}/cambiar-estado?${p1}`, {
-        method: 'PUT',
-        headers: getHeaders()
-      });
-      if (!r1.ok) {
-        const err = await r1.json();
-        return showMessage(form.parentNode, `Error estado: ${err.error}`, 'error');
-      }
+      try {
+        // 1) Cambiar a pending
+        await fetch(`${API_BASE}/cambiar-estado?` +
+          new URLSearchParams({
+            order_id: orderId,
+            status: 'pending',
+            ...qc
+          }),
+          { method: 'PUT', headers: getHeaders() }
+        );
 
-      // 2) Eliminar el ítem original
-      const p2 = new URLSearchParams({
-        order_id: orderId,
-        line_index: lineIndex,
-        woocommerce_url: qc.woocommerce_url,
-        consumer_key: qc.consumer_key,
-        consumer_secret: qc.consumer_secret
-      });
-      const r2 = await fetch(`${API_BASE}/eliminar-item?${p2}`, {
-        method: 'DELETE',
-        headers: getHeaders()
-      });
-      if (!r2.ok) {
-        const err = await r2.json();
-        return showMessage(form.parentNode, `Error eliminar: ${err.error}`, 'error');
-      }
+        // 2) Eliminar el ítem original
+        await fetch(`${API_BASE}/eliminar-item?` +
+          new URLSearchParams({
+            order_id: orderId,
+            line_index: lineIndex,
+            ...qc
+          }),
+          { method: 'DELETE', headers: getHeaders() }
+        );
 
-      // 3) Añadir el nuevo ítem
-      const payload = {
-        ...qc,
-        product_id: Number(productId),
-        variation_id: Number(newVarId),
-        quantity: Number(newQty)
-      };
-      const r3 = await fetch(`${API_BASE}/anadir-item?order_id=${orderId}`, {
-        method: 'POST',
-        headers: getHeaders(),
-        body: JSON.stringify(payload)
-      });
-      if (r3.ok) {
+        // 3) Editar con precio incluido y VAT
+        const params = new URLSearchParams({
+          order_id:       orderId,
+          line_index:     lineIndex,
+          variation_id:   newVarId,
+          quantity:       newQty,
+          price_incl_tax: unitIncl,
+          vat_rate:       vatRate,
+          ...qc
+        });
+        const resEdit = await fetch(`${API_BASE}/editar-item?${params}`, {
+          method: 'PUT',
+          headers: getHeaders()
+        });
+        if (!resEdit.ok) {
+          const err = await resEdit.json();
+          return showMessage(form.parentNode, `Error al actualizar: ${err.error}`, 'error');
+        }
+
         showMessage(form.parentNode, 'Artículo actualizado');
         await loadPedidos();
-      } else {
-        const err = await r3.json();
-        showMessage(form.parentNode, `Error añadir: ${err.error}`, 'error');
+      } catch (error) {
+        console.error('Error al editar ítem:', error);
+        showMessage(form.parentNode, 'Error inesperado al actualizar', 'error');
       }
     });
 
@@ -1156,129 +1171,6 @@ if (e.target.matches('.btn-edit-item')) {
   }
 
   // Alternar visibilidad del form
-  form.style.display = form.style.display === 'none' ? 'block' : 'none';
-  return;
-}
-
-
-// 6) Añadir artículo
-if (e.target.matches('.btn-add-item')) {
-  const orderId = e.target.dataset.orderId;
-  let form = e.target.parentNode.querySelector('.add-item-form');
-  if (!form) {
-    form = document.createElement('div');
-    form.className = 'add-item-form mt-2 mb-3';
-
-    // Select de productos con ancho completo
-    const selProd = document.createElement('select');
-    selProd.className = 'form-control mb-2';
-    selProd.innerHTML = `<option value="">— Selecciona producto —</option>`;
-    productsList.forEach(p => {
-      const opt = document.createElement('option');
-      opt.value = p.id;
-      opt.text = p.name;
-      selProd.appendChild(opt);
-    });
-    form.appendChild(selProd);
-
-    // Select de variaciones con ancho completo (oculto inicialmente)
-    const selVar = document.createElement('select');
-    selVar.className = 'form-control mb-2';
-    selVar.innerHTML = `<option value="">— Selecciona variación —</option>`;
-    selVar.style.display = 'none';
-    form.appendChild(selVar);
-
-    // Input de cantidad con ancho completo
-    const qtyInput = document.createElement('input');
-    qtyInput.type = 'number';
-    qtyInput.min = '1';
-    qtyInput.placeholder = 'Cantidad';
-    qtyInput.className = 'form-control mb-3';
-    form.appendChild(qtyInput);
-
-    // Botones Aceptar y Cancelar en la misma línea
-    const btnOk = document.createElement('button');
-    btnOk.innerText = '✓ Aceptar';
-    btnOk.disabled = true;
-    btnOk.className = 'btn btn-success mr-2';
-
-    const btnCancel = document.createElement('button');
-    btnCancel.innerText = '✖ Cancelar';
-    btnCancel.className = 'btn btn-danger';
-    btnCancel.addEventListener('click', () => { form.style.display = 'none'; });
-
-    const btnGroup = document.createElement('div');
-    btnGroup.className = 'd-flex';
-    btnGroup.append(btnOk, btnCancel);
-    form.appendChild(btnGroup);
-
-    // Al cambiar producto, cargamos variaciones
-    selProd.addEventListener('change', async () => {
-      const prodId = selProd.value;
-      selVar.innerHTML = `<option value="">— Selecciona variación —</option>`;
-      if (!prodId) {
-        selVar.style.display = 'none';
-        btnOk.disabled = true;
-        return;
-      }
-      const qc = getWooConfig();
-      const paramsVar = new URLSearchParams({
-        product_id: prodId,
-        ...qc
-      });
-      const resVar = await fetch(`${API_BASE}/get-variaciones?${paramsVar}`, { headers: getHeaders() });
-      const vars = await resVar.json();
-      if (Array.isArray(vars) && vars.length) {
-        vars.forEach(v => {
-          const opt = document.createElement('option');
-          opt.value = v.id;
-          opt.text = v.attributes.map(a => `${a.name}: ${a.option}`).join(', ');
-          selVar.appendChild(opt);
-        });
-        selVar.style.display = '';
-      } else {
-        selVar.style.display = 'none';
-      }
-      btnOk.disabled = !qtyInput.value;
-    });
-
-    // Al cambiar cantidad, habilitamos/deshabilitamos Aceptar
-    qtyInput.addEventListener('input', () => {
-      btnOk.disabled = !(selProd.value && qtyInput.value);
-    });
-
-    // Evento de Aceptar: añadimos el artículo
-    btnOk.addEventListener('click', async () => {
-      const prodId = selProd.value;
-      const varId = selVar.style.display === 'none' ? null : selVar.value;
-      const qty = qtyInput.value;
-      if (!prodId || !qty || (selVar.style.display !== 'none' && !varId)) {
-        return alert('Completa todos los campos.');
-      }
-      const body = {
-        product_id: Number(prodId),
-        quantity: Number(qty),
-        ...(varId ? { variation_id: Number(varId) } : {})
-      };
-      const payload = { ...getWooConfig(), ...body };
-      const res = await fetch(`${API_BASE}/anadir-item?order_id=${orderId}`, {
-        method: 'POST',
-        headers: getHeaders(),
-        body: JSON.stringify(payload)
-      });
-      if (res.ok) {
-        showMessage(form.parentNode, 'Artículo añadido');
-        await loadPedidos();
-        form.style.display = 'none';
-      } else {
-        const err = await res.json();
-        showMessage(form.parentNode, `Error: ${err.error}`, 'error');
-      }
-    });
-
-    // Insertar formulario justo debajo del botón
-    e.target.insertAdjacentElement('afterend', form);
-  }
   form.style.display = form.style.display === 'none' ? 'block' : 'none';
   return;
 }
