@@ -1112,197 +1112,6 @@ if (e.target.matches('.btn-edit-item')) {
         const opt = document.createElement('option');
         opt.value = v.id;
         opt.text  = v.attributes.map(a => `${a.name}: ${a.option}`).join(', ');
-        opt.dataset.priceExcl = v.price; // precio sin IVA
-        if (v.id == oldVarId) opt.selected = true;
-        selVar.appendChild(opt);
-      });
-      toggleOk();
-    })();
-
-    // 8) Al pulsar “Aceptar”
-    btnOk.addEventListener('click', async () => {
-      const newVarId   = selVar.value;
-      const newQty     = qtyInput.value;
-      const unitIncl   = parseFloat(priceInclInput.value.replace(',', '.'));
-      const vatRatePct = parseFloat(vatInput.value.replace(',', '.'));
-      const config     = getWooConfig();
-
-      try {
-        // 8.1) Cambiar a pending
-        await fetch(
-          `${API_BASE}/cambiar-estado?` +
-          new URLSearchParams({
-            order_id:        orderId,
-            status:          'pending',
-            woocommerce_url: config.woocommerce_url,
-            consumer_key:    config.consumer_key,
-            consumer_secret: config.consumer_secret
-          }),
-          { method: 'PUT', headers: getHeaders() }
-        );
-
-        // 8.2) Eliminar la línea original
-        await fetch(
-          `${API_BASE}/eliminar-item?` +
-          new URLSearchParams({
-            order_id:        orderId,
-            line_index:      lineIndex,
-            woocommerce_url: config.woocommerce_url,
-            consumer_key:    config.consumer_key,
-            consumer_secret: config.consumer_secret
-          }),
-          { method: 'DELETE', headers: getHeaders() }
-        );
-
-        // 8.3) Calcular valores de precio e impuestos
-        const rate     = vatRatePct / 100;
-        const priceExcl   = parseFloat((unitIncl / (1 + rate)).toFixed(2));
-        const taxUnit     = parseFloat((unitIncl - priceExcl).toFixed(2));
-        const subtotal    = parseFloat((priceExcl * newQty).toFixed(2));
-        const totalTax    = parseFloat((taxUnit * newQty).toFixed(2));
-        const totalLine   = parseFloat((subtotal + totalTax).toFixed(2));
-
-        // 8.4) Añadir la nueva línea CON PRECIO + IVA
-        const addParams = new URLSearchParams({
-          order_id:        orderId,
-          product_id:      productId,
-          variation_id:    newVarId,
-          quantity:        newQty,
-          price:           priceExcl.toFixed(2),
-          subtotal:        subtotal.toFixed(2),
-          total:           totalLine.toFixed(2),
-          subtotal_tax:    totalTax.toFixed(2),
-          total_tax:       totalTax.toFixed(2),
-          woocommerce_url: config.woocommerce_url,
-          consumer_key:    config.consumer_key,
-          consumer_secret: config.consumer_secret
-        });
-        const resAdd = await fetch(
-          `${API_BASE}/anadir-item?${addParams.toString()}`,
-          { method: 'POST', headers: getHeaders() }
-        );
-        if (!resAdd.ok) {
-          const err = await resAdd.json();
-          return showMessage(form.parentNode, `Error al añadir: ${err.error}`, 'error');
-        }
-
-        showMessage(form.parentNode, 'Artículo actualizado');
-        await loadPedidos();
-      } catch (error) {
-        console.error('Error al editar ítem:', error);
-        showMessage(form.parentNode, 'Error inesperado al actualizar', 'error');
-      }
-    });
-
-    // 9) Insertar el form justo después del botón
-    btn.insertAdjacentElement('afterend', form);
-  }
-
-  // 10) Alternar visibilidad del form
-  form.style.display = form.style.display === 'none' ? 'block' : 'none';
-  return;
-}
-// 5) Editar talla, cantidad y precio (IVA incluido)
-if (e.target.matches('.btn-edit-item')) {
-  const btn         = e.target;
-  const orderId     = btn.dataset.orderId;
-  const lineIndex   = btn.dataset.index;
-  const productId   = btn.dataset.productId;
-  const oldVarId    = btn.dataset.variationId;
-  const oldQuantity = btn.dataset.quantity;
-  // total con IVA viene en data-total
-  const oldTotal    = parseFloat(btn.dataset.total) || 0;
-
-  let form = btn.nextElementSibling;
-  if (!form || !form.classList.contains('edit-item-form')) {
-    form = document.createElement('div');
-    form.className = 'edit-item-form mt-2 mb-3';
-
-    // 1) Select de variaciones
-    const selVar = document.createElement('select');
-    selVar.className = 'form-control mb-2';
-    selVar.innerHTML = '<option value="">— Selecciona variación —</option>';
-    form.appendChild(selVar);
-
-    // 2) Input de cantidad
-    const qtyInput = document.createElement('input');
-    qtyInput.type        = 'number';
-    qtyInput.min         = '1';
-    qtyInput.value       = oldQuantity;
-    qtyInput.placeholder = 'Cantidad';
-    qtyInput.className   = 'form-control mb-2';
-    form.appendChild(qtyInput);
-
-    // 3) Input precio unitario (IVA incl.)
-    const priceInclInput = document.createElement('input');
-    priceInclInput.type        = 'number';
-    priceInclInput.step        = '0.01';
-    priceInclInput.min         = '0.01';
-    priceInclInput.value       = (oldTotal / oldQuantity).toFixed(2);
-    priceInclInput.placeholder = 'Precio unit. (IVA incl.)';
-    priceInclInput.className   = 'form-control mb-2';
-    form.appendChild(priceInclInput);
-
-    // 4) Input % IVA
-    const vatInput = document.createElement('input');
-    vatInput.type        = 'number';
-    vatInput.step        = '0.01';
-    vatInput.min         = '0';
-    vatInput.value       = '21';
-    vatInput.placeholder = '% IVA';
-    vatInput.className   = 'form-control mb-3';
-    form.appendChild(vatInput);
-
-    // 5) Botones Aceptar / Cancelar
-    const btnOk = document.createElement('button');
-    btnOk.type      = 'button';
-    btnOk.innerText = '✓ Aceptar';
-    btnOk.disabled  = true;
-    btnOk.className = 'btn btn-success flex-fill mr-2';
-
-    const btnCancel = document.createElement('button');
-    btnCancel.type      = 'button';
-    btnCancel.innerText = '✖ Cancelar';
-    btnCancel.className = 'btn btn-secondary flex-fill';
-    btnCancel.addEventListener('click', () => {
-      form.style.display = 'none';
-    });
-
-    const btnGroup = document.createElement('div');
-    btnGroup.className = 'd-flex mb-3';
-    btnGroup.append(btnOk, btnCancel);
-    form.appendChild(btnGroup);
-
-    // 6) Habilitar “Aceptar” solo si todos los campos tienen valor
-    function toggleOk() {
-      btnOk.disabled = !(
-        selVar.value &&
-        qtyInput.value &&
-        priceInclInput.value &&
-        vatInput.value
-      );
-    }
-    [selVar, qtyInput, priceInclInput, vatInput].forEach(el =>
-      el.addEventListener('input', toggleOk)
-    );
-
-    // 7) Cargar variaciones
-    (async () => {
-      const config = getWooConfig();
-      const paramsVar = new URLSearchParams({
-        product_id:      productId,
-        woocommerce_url: config.woocommerce_url,
-        consumer_key:    config.consumer_key,
-        consumer_secret: config.consumer_secret
-      });
-      const resVar = await fetch(`${API_BASE}/get-variaciones?${paramsVar}`, {
-        headers: getHeaders()
-      });
-      const vars = await resVar.json();
-      vars.forEach(v => {
-        const opt = document.createElement('option');
-        opt.value = v.id;
-        opt.text  = v.attributes.map(a => `${a.name}: ${a.option}`).join(', ');
         if (v.id == oldVarId) opt.selected = true;
         selVar.appendChild(opt);
       });
@@ -1418,7 +1227,8 @@ if (e.target.matches('.btn-edit-item')) {
   return;
 }
 
-// 6) Añadir artículo
+
+// ——— 6) Añadir artículo con precio TOTAL (IVA incluido) ———
 if (e.target.matches('.btn-add-item')) {
   const btn     = e.target;
   const orderId = btn.dataset.orderId;
@@ -1452,10 +1262,29 @@ if (e.target.matches('.btn-add-item')) {
     qtyInput.type        = 'number';
     qtyInput.min         = '1';
     qtyInput.placeholder = 'Cantidad';
-    qtyInput.className   = 'form-control mb-3';
+    qtyInput.className   = 'form-control mb-2';
     form.appendChild(qtyInput);
 
-    // 4) Botones Aceptar / Cancelar
+    // 4) Input precio TOTAL (IVA incluido)
+    const totalInclInput = document.createElement('input');
+    totalInclInput.type        = 'number';
+    totalInclInput.step        = '0.01';
+    totalInclInput.min         = '0.01';
+    totalInclInput.placeholder = 'Precio total (IVA incl.)';
+    totalInclInput.className   = 'form-control mb-2';
+    form.appendChild(totalInclInput);
+
+    // 5) Input % IVA
+    const vatInput = document.createElement('input');
+    vatInput.type        = 'number';
+    vatInput.step        = '0.01';
+    vatInput.min         = '0';
+    vatInput.value       = '21';
+    vatInput.placeholder = '% IVA';
+    vatInput.className   = 'form-control mb-3';
+    form.appendChild(vatInput);
+
+    // 6) Botones Aceptar / Cancelar
     const btnOk = document.createElement('button');
     btnOk.type      = 'button';
     btnOk.innerText = '✓ Aceptar';
@@ -1466,30 +1295,25 @@ if (e.target.matches('.btn-add-item')) {
     btnCancel.type      = 'button';
     btnCancel.innerText = '✖ Cancelar';
     btnCancel.className = 'btn btn-danger';
-    btnCancel.addEventListener('click', () => {
-      form.style.display = 'none';
-    });
+    btnCancel.addEventListener('click', () => form.style.display = 'none');
 
     const btnGroup = document.createElement('div');
     btnGroup.className = 'd-flex';
     btnGroup.append(btnOk, btnCancel);
     form.appendChild(btnGroup);
 
-    // 5) Al cambiar producto, cargamos variaciones
+    // 7) Carga de variaciones al elegir producto
     selProd.addEventListener('change', async () => {
-      const prodId = selProd.value;
       selVar.innerHTML = '<option value="">— Selecciona variación —</option>';
-      if (prodId) {
+      if (selProd.value) {
         const { woocommerce_url, consumer_key, consumer_secret } = getWooConfig();
         const params = new URLSearchParams({
-          product_id:      prodId,
+          product_id:      selProd.value,
           woocommerce_url,
           consumer_key,
           consumer_secret
         });
-        const res = await fetch(`${API_BASE}/get-variaciones?${params}`, {
-          headers: getHeaders()
-        });
+        const res = await fetch(`${API_BASE}/get-variaciones?${params}`, { headers: getHeaders() });
         const vars = await res.json();
         vars.forEach(v => {
           const opt = document.createElement('option');
@@ -1501,29 +1325,58 @@ if (e.target.matches('.btn-add-item')) {
       } else {
         selVar.style.display = 'none';
       }
-      btnOk.disabled = !(selProd.value && selVar.value && qtyInput.value);
+      toggleOk();
     });
 
-    // 6) Habilitar Aceptar solo cuando haya variación y cantidad
-    qtyInput.addEventListener('input', () => {
-      btnOk.disabled = !(selProd.value && selVar.value && qtyInput.value);
-    });
-    selVar.addEventListener('input', () => {
-      btnOk.disabled = !(selProd.value && selVar.value && qtyInput.value);
-    });
+    // 8) Habilitar “Aceptar” sólo cuando todo esté completo
+    function toggleOk() {
+      btnOk.disabled = !(
+        selProd.value &&
+        selVar.value &&
+        qtyInput.value &&
+        totalInclInput.value &&
+        vatInput.value
+      );
+    }
+    [selProd, selVar, qtyInput, totalInclInput, vatInput].forEach(el =>
+      el.addEventListener('input', toggleOk)
+    );
 
-    // 7) Lógica al pulsar “Aceptar”
+    // 9) Envío: calcular unitario, desglosar impuestos y llamar a la API
     btnOk.addEventListener('click', async () => {
       const product_id   = Number(selProd.value);
       const variation_id = Number(selVar.value);
-      const quantity     = Number(qtyInput.value);
+      const qtyNum       = Number(qtyInput.value);
+      const totalIncl    = parseFloat(totalInclInput.value.replace(',', '.'));
+      const vatRatePct   = parseFloat(vatInput.value.replace(',', '.'));
+
+      // — 9.1) Dividir totalIncl entre cantidad para obtener unitario IVA incl.
+      const unitIncl = parseFloat((totalIncl / qtyNum).toFixed(2));
+      console.log('🔎 unitIncl:', unitIncl);
+
+      // — 9.2) Calcular neto e impuestos
+      const rate       = vatRatePct / 100;
+      const priceExcl  = parseFloat((unitIncl / (1 + rate)).toFixed(2));
+      const taxUnit    = parseFloat((unitIncl - priceExcl).toFixed(2));
+      const subtotalExcl = parseFloat((priceExcl * qtyNum).toFixed(2));
+      const totalTax     = parseFloat((taxUnit * qtyNum).toFixed(2));
+      const totalLine    = parseFloat((subtotalExcl + totalTax).toFixed(2));
+
+      // — 9.3) Montar payload JSON completo
       const payload = {
-        product_id,
-        quantity,
+        product_id:   product_id,
+        quantity:     qtyNum,
         ...(variation_id ? { variation_id } : {}),
+        price:        priceExcl.toFixed(2),
+        subtotal:     subtotalExcl.toFixed(2),
+        total:        totalLine.toFixed(2),
+        subtotal_tax: totalTax.toFixed(2),
+        total_tax:    totalTax.toFixed(2),
         ...getWooConfig()
       };
+      console.log('📬 payload anadir-item:', payload);
 
+      // — 9.4) Llamada POST con JSON body
       try {
         const res = await fetch(
           `${API_BASE}/anadir-item?order_id=${orderId}`,
@@ -1536,27 +1389,29 @@ if (e.target.matches('.btn-add-item')) {
             body: JSON.stringify(payload)
           }
         );
+        console.log('✅ anadir-item status:', res.status);
 
         if (!res.ok) {
-          const err = await res.json();
-          return showMessage(form.parentNode, `Error: ${err.error}`, 'error');
+          const text = await res.text();
+          console.error('❌ anadir-item error:', text);
+          return showMessage(form.parentNode, `Error: ${text}`, 'error');
         }
 
         showMessage(form.parentNode, 'Artículo añadido');
         await loadPedidos();
         form.style.display = 'none';
 
-      } catch (error) {
-        console.error('Error añadiendo artículo:', error);
+      } catch (err) {
+        console.error('🛑 Exception añadiendo artículo:', err);
         showMessage(form.parentNode, 'Error inesperado al añadir', 'error');
       }
     });
 
-    // 8) Insertar el formulario
+    // 10) Insertar el formulario en el DOM
     btn.insertAdjacentElement('afterend', form);
   }
 
-  // 9) Alternar visibilidad del form
+  // 11) Alternar visibilidad
   form.style.display = form.style.display === 'none' ? 'block' : 'none';
   return;
 }
