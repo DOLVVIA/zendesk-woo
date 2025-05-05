@@ -1,48 +1,38 @@
-// backend/routes/callbell.js
+const express = require('express');
+const router  = express.Router();
+const fetch   = require('node-fetch');
+const CALLBELL_API = 'https://api.callbell.eu/v1';
 
-require('dotenv').config();
-const express       = require('express');
-const router        = express.Router();
-const fetch         = require('node-fetch');
-const CALLBELL_API  = 'https://api.callbell.eu/v1';
-
-// Middleware para validar x-zendesk-secret y leer token/uuid desde env
+// Middleware para validar secreto y leer token+channel_uuid desde env
 function authCallbell(req, res, next) {
-  // 1) Comprueba el secreto de Zendesk
-  const incomingSecret = req.get('x-zendesk-secret');
-  if (!incomingSecret || incomingSecret !== process.env.ZENDESK_SHARED_SECRET) {
+  const incoming = req.get('x-zendesk-secret');
+  if (!incoming || incoming !== process.env.ZENDESK_SHARED_SECRET) {
     return res.status(401).json({ error: 'Unauthorized: x-zendesk-secret inválido' });
   }
-
-  // 2) Lee el token de Callbell
-  const cbToken = process.env.CALLBELL_TOKEN;
-  if (!cbToken) {
-    return res.status(500).json({ error: 'Falta configurar CALLBELL_TOKEN' });
+  const token   = process.env.CALLBELL_TOKEN;
+  const channel = process.env.CALLBELL_CHANNEL_UUID;
+  if (!token || !channel) {
+    return res.status(500).json({ error: 'Falta configurar CALLBELL_TOKEN o CALLBELL_CHANNEL_UUID' });
   }
-  req.cbToken = cbToken;
-
-  // 3) Lee el UUID de canal
-  const cbChannel = process.env.CALLBELL_CHANNEL_UUID;
-  if (!cbChannel) {
-    return res.status(500).json({ error: 'Falta configurar CALLBELL_CHANNEL_UUID' });
-  }
-  req.cbChannel = cbChannel;
-
+  req.cbToken      = token;
+  req.cbChannelUid = channel;
   next();
 }
 
 // GET /api/callbell/templates
 router.get('/templates', authCallbell, async (req, res) => {
   try {
-    const resp = await fetch(`${CALLBELL_API}/templates`, {
+    const url = `${CALLBELL_API}/templates?channel_uuid=${req.cbChannelUid}`;
+    const resp = await fetch(url, {
       headers: { Authorization: `Bearer ${req.cbToken}` }
     });
     if (!resp.ok) {
-      const text = await resp.text();
-      return res.status(resp.status).json({ error: text });
+      const txt = await resp.text();
+      return res.status(resp.status).json({ error: txt });
     }
-    const { templates } = await resp.json();
-    res.json({ templates });
+    const data = await resp.json();
+    // vienen como data.templates
+    res.json({ templates: data.templates });
   } catch (err) {
     console.error('Error fetching Callbell templates:', err);
     res.status(500).json({ error: 'Error al obtener plantillas' });
@@ -52,36 +42,32 @@ router.get('/templates', authCallbell, async (req, res) => {
 // POST /api/callbell/send
 router.post('/send', authCallbell, async (req, res) => {
   const { templateId, orderNumber, phone } = req.body;
-
-  // Validaciones
-  if (!templateId)   return res.status(400).json({ error: 'Falta templateId' });
-  if (!orderNumber)  return res.status(400).json({ error: 'Falta orderNumber' });
-  if (!phone)        return res.status(400).json({ error: 'Falta número de teléfono' });
+  if (!templateId || !orderNumber || !phone) {
+    return res.status(400).json({ error: 'Faltan templateId, orderNumber o phone' });
+  }
 
   try {
-    console.log(`🔔 [Callbell] Enviando a canal=${req.cbChannel}, tel=${phone}, tpl=${templateId}`);
+    // 1) Llamada a la API de Callbell
     const resp = await fetch(`${CALLBELL_API}/messages`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        Authorization:  `Bearer ${req.cbToken}`
+        'Content-Type':    'application/json',
+        Authorization:     `Bearer ${req.cbToken}`
       },
       body: JSON.stringify({
-        channelUuid: req.cbChannel,
-        to:          phone,
+        channel_uuid: req.cbChannelUid,
+        to:           phone,
         templateId,
-        variables:   { orderNumber }
+        variables:    { orderNumber }
       })
     });
 
     if (!resp.ok) {
       const text = await resp.text();
-      console.error('❌ Error sending Callbell message:', text);
+      console.error('Error sending Callbell message:', text);
       return res.status(resp.status).json({ error: text });
     }
-
     const data = await resp.json();
-    console.log('✅ Mensaje enviado:', data);
     res.json(data);
 
   } catch (err) {
