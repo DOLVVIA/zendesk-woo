@@ -3,7 +3,19 @@ const express = require('express');
 const router = express.Router();
 const fetch = require('node-fetch');
 
-// 1) GET PLANTILLAS CALLBELL
+// Middleware para validar x-zendesk-secret
+function validateZendeskSecret(req, res, next) {
+  const incoming = req.get('x-zendesk-secret');
+  if (!incoming || incoming !== process.env.ZENDESK_SHARED_SECRET) {
+    return res.status(401).json({ error: 'Unauthorized: x-zendesk-secret inválido' });
+  }
+  next();
+}
+
+// Aplica la validación a todas las rutas de este router
+router.use(validateZendeskSecret);
+
+// 1) GET todas las plantillas de Callbell
 router.get('/plantillas', async (req, res) => {
   try {
     const response = await fetch('https://api.callbell.eu/v1/templates', {
@@ -21,9 +33,8 @@ router.get('/plantillas', async (req, res) => {
     res.status(500).json({ error: 'Error interno al obtener plantillas' });
   }
 });
-// :contentReference[oaicite:0]{index=0}
 
-// 2) ENVIAR MENSAJE CALLBELL
+// 2) POST para enviar un mensaje con plantilla
 router.post('/enviar-mensaje', async (req, res) => {
   const { to, template_uuid, template_values } = req.body;
   try {
@@ -50,6 +61,5 @@ router.post('/enviar-mensaje', async (req, res) => {
     res.status(500).json({ error: 'Error interno al enviar mensaje' });
   }
 });
-// :contentReference[oaicite:1]{index=1}
 
 module.exports = router;
