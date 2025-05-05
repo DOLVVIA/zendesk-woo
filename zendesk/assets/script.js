@@ -318,7 +318,7 @@ function renderStripeCharges(charges, container, panel) {
   }
 
   
-  // ─── Función para insertar el botón de Callbell ───
+// ─── Función para insertar el botón de Callbell ───
 async function addCallbellButton(panel, order) {
   // 1) Creamos el details igual que en Stripe/PayPal
   const cbDetails = document.createElement('details');
@@ -340,17 +340,25 @@ async function addCallbellButton(panel, order) {
   sel.innerHTML = '<option value="">— Selecciona plantilla —</option>';
   cbContent.appendChild(sel);
 
-  // 4) Botón de envío
+  // 4) Campo de teléfono editable
+  const phoneInput = document.createElement('input');
+  phoneInput.type = 'tel';
+  phoneInput.className = 'form-control mb-2';
+  phoneInput.placeholder = 'Teléfono para envío';
+  phoneInput.value = (order.billing.phone || '').trim();
+  cbContent.appendChild(phoneInput);
+
+  // 5) Botón de envío
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'btn btn-primary btn-block';
   btn.innerText = 'Enviar';
   cbContent.appendChild(btn);
 
-  // 5) Insertamos todo en el panel
+  // 6) Insertamos todo en el panel
   panel.appendChild(cbDetails);
 
-  // 6) Carga plantillas solo una vez al abrir
+  // 7) Carga plantillas solo una vez al abrir
   let loaded = false;
   cbDetails.addEventListener('toggle', async () => {
     if (cbDetails.open && !loaded) {
@@ -365,8 +373,8 @@ async function addCallbellButton(panel, order) {
         const { templates } = await res.json();
         templates.forEach(t => {
           const o = document.createElement('option');
-          o.value = t.id;
-          o.text  = t.name;
+          o.value = t.uuid;    // uuid para el envío
+          o.text  = t.title;   // título legible
           sel.appendChild(o);
         });
         loaded = true;
@@ -377,9 +385,28 @@ async function addCallbellButton(panel, order) {
     }
   });
 
-  // 7) Al enviar, llamamos al endpoint correcto
+  // 8) Al hacer clic en Enviar
   btn.addEventListener('click', async () => {
-    if (!sel.value) return alert('Selecciona una plantilla');
+    if (!sel.value) {
+      return alert('Selecciona una plantilla');
+    }
+    let phoneToSend = phoneInput.value.trim();
+    if (!phoneToSend) {
+      return alert('Introduce un teléfono válido');
+    }
+
+    // — Normalización para España (+34) —
+    if (phoneToSend.startsWith('00')) {
+      phoneToSend = '+' + phoneToSend.slice(2);
+    } else if (!phoneToSend.startsWith('+') && /^\d{9}$/.test(phoneToSend)) {
+      phoneToSend = '+34' + phoneToSend;
+    } else {
+      const digits = phoneToSend.replace(/\D/g, '');
+      if (digits.length === 9 && !phoneToSend.startsWith('+')) {
+        phoneToSend = '+34' + digits;
+      }
+    }
+
     try {
       const res = await fetch(`${API_BASE}/callbell/send`, {
         method: 'POST',
@@ -390,7 +417,8 @@ async function addCallbellButton(panel, order) {
         },
         body: JSON.stringify({
           templateId:  sel.value,
-          orderNumber: order.id
+          orderNumber: order.id,
+          phone:       phoneToSend
         })
       });
       if (!res.ok) throw new Error(await res.text());
@@ -402,7 +430,6 @@ async function addCallbellButton(panel, order) {
     }
   });
 }
-
   async function loadPedidos() {
     const { 'ticket.requester.email': email } = await client.get('ticket.requester.email');
     if (!email) return;

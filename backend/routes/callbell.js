@@ -6,8 +6,8 @@ const CALLBELL_API = 'https://api.callbell.eu/v1';
 // Middleware para validar x-zendesk-secret y leer token desde header
 function authCallbell(req, res, next) {
   // 1) Comprueba el secreto de Zendesk
-  const incoming = req.get('x-zendesk-secret');
-  if (!incoming || incoming !== process.env.ZENDESK_SHARED_SECRET) {
+  const incomingSecret = req.get('x-zendesk-secret');
+  if (!incomingSecret || incomingSecret !== process.env.ZENDESK_SHARED_SECRET) {
     return res.status(401).json({ error: 'Unauthorized: x-zendesk-secret inválido' });
   }
   // 2) Lee el token de Callbell enviado por el front
@@ -38,39 +38,40 @@ router.get('/templates', authCallbell, async (req, res) => {
 
 // POST /api/callbell/send
 router.post('/send', authCallbell, async (req, res) => {
-  const { templateId, orderNumber } = req.body;
-  if (!templateId || !orderNumber) {
-    return res.status(400).json({ error: 'Faltan templateId o orderNumber' });
+  const { templateId, orderNumber, phone } = req.body;
+
+  // 1) Validaciones básicas
+  if (!templateId) {
+    return res.status(400).json({ error: 'Falta templateId' });
+  }
+  if (!orderNumber) {
+    return res.status(400).json({ error: 'Falta orderNumber' });
+  }
+  if (!phone) {
+    return res.status(400).json({ error: 'Falta número de teléfono' });
   }
 
   try {
-    const { fetchOrderById } = require('../utils/woocommerce');
-    const order = await fetchOrderById(
-      {
-        woocommerce_url: req.body.woocommerce_url,
-        consumer_key:    req.body.consumer_key,
-        consumer_secret: req.body.consumer_secret
-      },
-      orderNumber
-    );
-    const phone = order.billing.phone;
-    if (!phone) {
-      return res.status(400).json({ error: 'El pedido no tiene teléfono' });
-    }
-
+    // 2) Envía el mensaje a través de la API de Callbell
     const resp = await fetch(`${CALLBELL_API}/messages`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        Authorization:  `Bearer ${req.cbToken}`
+        'Content-Type':  'application/json',
+        Authorization:   `Bearer ${req.cbToken}`
       },
-      body: JSON.stringify({ to: phone, templateId, variables: { orderNumber } })
+      body: JSON.stringify({
+        to:         phone,
+        templateId,
+        variables: { orderNumber }
+      })
     });
+
     if (!resp.ok) {
       const text = await resp.text();
       console.error('Error sending Callbell message:', text);
-      return res.status(500).json({ error: 'Error al enviar mensaje' });
+      return res.status(resp.status).json({ error: text });
     }
+
     const data = await resp.json();
     res.json(data);
 
