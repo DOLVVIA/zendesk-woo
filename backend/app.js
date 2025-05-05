@@ -1,4 +1,3 @@
-// backend/app.js
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -17,27 +16,28 @@ app.use((req, res, next) => {
 
 // Middlewares estándar
 app.use(cors());
+// Esto permite leer JSON en req.body
 app.use(express.json());
 
 // Importación de rutas
 console.log('🔔 [App] Importando rutas de API');
-const buscarPedidosRoute         = require('./routes/orders');
-const editarDireccionRoutes      = require('./routes/editar-ruta');
-const getVariacionesRoutes       = require('./routes/get-variaciones');
-const editarItemRoutes           = require('./routes/editar-item');
-const cambiarEstadoRoutes        = require('./routes/cambiar-estado');
-const getEstadosRoutes           = require('./routes/get-estados');
-const eliminarItemRoutes         = require('./routes/eliminar-item');
-const anadirItemRoutes           = require('./routes/anadir-item');
-const getProductosRoutes         = require('./routes/get-productos');
-const getCiudadesRoutes          = require('./routes/get-ciudades');
-const getProvinciasRoutes        = require('./routes/get-provincias');
-const getStripeChargesRoutes     = require('./routes/get-stripe-charges');
-const refundStripeRoutes         = require('./routes/refund-stripe');
-const getPayPalTransactionsRoutes = require('./routes/get-paypal-transactions');
-const refundPayPalRoutes         = require('./routes/refund-paypal');
-const bbvaRoutes                 = require('./routes/bbva-transfer');
-const callbellRoutes             = require('./routes/callbell');
+const buscarPedidosRoute           = require('./routes/orders');
+const editarDireccionRoutes        = require('./routes/editar-ruta');
+const getVariacionesRoutes         = require('./routes/get-variaciones');
+const editarItemRoutes             = require('./routes/editar-item');
+const cambiarEstadoRoutes          = require('./routes/cambiar-estado');
+const getEstadosRoutes             = require('./routes/get-estados');
+const eliminarItemRoutes           = require('./routes/eliminar-item');
+const anadirItemRoutes             = require('./routes/anadir-item');
+const getProductosRoutes           = require('./routes/get-productos');
+const getCiudadesRoutes            = require('./routes/get-ciudades');
+const getProvinciasRoutes          = require('./routes/get-provincias');
+const getStripeChargesRoutes       = require('./routes/get-stripe-charges');
+const refundStripeRoutes           = require('./routes/refund-stripe');
+const getPayPalTransactionsRoutes  = require('./routes/get-paypal-transactions');
+const refundPayPalRoutes           = require('./routes/refund-paypal');
+const bbvaRoutes                   = require('./routes/bbva-transfer');
+const callbellRoutes               = require('./routes/callbell');
 
 // Montaje de rutas con logs
 console.log('🔔 [App] Montando ruta GET /api/buscar-pedidos');

@@ -6,12 +6,10 @@ const API     = 'https://api.callbell.eu/v1';
 
 // Middleware para validar x-zendesk-secret y leer token+channel_uuid de headers
 function authCallbell(req, res, next) {
-  // 1) Zendesk shared secret
   const incoming = req.get('x-zendesk-secret');
   if (!incoming || incoming !== process.env.ZENDESK_SHARED_SECRET) {
     return res.status(401).json({ error: 'Unauthorized: x-zendesk-secret inválido' });
   }
-  // 2) Token de Callbell (del frontend)
   const token   = req.get('x-callbell-token');
   const channel = req.get('x-callbell-channel-uuid');
   if (!token || !channel) {
@@ -45,20 +43,30 @@ router.get('/templates', authCallbell, async (req, res) => {
 
 // POST /api/callbell/send
 router.post('/send', authCallbell, async (req, res) => {
-  const { templateId, orderNumber, phone } = req.body;
-  if (!templateId || !orderNumber || !phone) {
-    return res.status(400).json({ error: 'Faltan templateId, orderNumber o phone' });
+  // Línea añadida para debugging
+  console.log('[Callbell] Request body →', req.body);
+
+  // Destructure body usando snake_case
+  const { template_id, orderNumber, phone } = req.body;
+
+  if (!template_id || !orderNumber || !phone) {
+    return res.status(400).json({ error: 'Faltan template_id, orderNumber o phone' });
   }
 
   try {
+    // URL correcta incluyendo el channel_uuid
+    const url = `${API}/channels/${req.cbChannelUid}/messages`;
+
+    // Payload sin channel_uuid
     const payload = {
-      channel_uuid: req.cbChannelUid,
       to:           phone,
-      templateId,
+      template_id,
       variables:    { orderNumber }
     };
-    console.log('[Callbell] Sending message →', payload);
-    const resp = await fetch(`${API}/messages`, {
+
+    console.log('[Callbell] Sending message →', url, payload);
+
+    const resp = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type':  'application/json',
@@ -66,6 +74,7 @@ router.post('/send', authCallbell, async (req, res) => {
       },
       body: JSON.stringify(payload)
     });
+
     if (!resp.ok) {
       const txt = await resp.text();
       console.error('[Callbell] send error:', txt);
