@@ -4,6 +4,7 @@ const client = ZAFClient.init();
 client.on('app.registered', async () => {
   const { settings: SETTINGS } = await client.metadata();
   console.log("CONFIG:", SETTINGS);
+  console.log("→ callbell_channel_uuid =", SETTINGS.callbell_channel_uuid);
   const API_BASE = 'https://zendesk-woo.onrender.com/api';
 
   function getHeaders() {
@@ -390,7 +391,7 @@ async function addCallbellButton(panel, order) {
           'x-callbell-channel-uuid': SETTINGS.callbell_channel_uuid
         },
         body: JSON.stringify({
-          templateId:  sel.value,
+          template_id:  sel.value,
           orderNumber: order.id,
           phone
         })
