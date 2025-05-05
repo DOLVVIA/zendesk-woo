@@ -86,7 +86,7 @@
       "name": "callbell_token",
       "type": "text",
       "required": true,
-      "secure": true
+      "secure": false
     }
   ]
 }
