@@ -24,35 +24,62 @@ client.on('app.registered', async () => {
     return { stripe_secret_key: SETTINGS.stripe_secret_key };
   }
 
-    // --- CALLBELL FUNCTIONS ---
-    let callbellTemplates = [];
+// --- CALLBELL FUNCTIONS ---
+let callbellTemplates = [];
 
-    async function fetchPlantillas() {
-      return client.request({
-        url: `${client.serverUrl()}/api/callbell/plantillas`,
-        type: 'GET',
-        dataType: 'json'
-      });
-    }
-  
-    async function enviarPlantilla(to, template_uuid, template_values) {
-      return client.request({
-        url: `${client.serverUrl()}/api/callbell/enviar-mensaje`,
-        type: 'POST',
-        contentType: 'application/json',
-        dataType: 'json',
-        data: { to, template_uuid, template_values }
-      });
-    }
-  
-    async function loadCallbellTemplates() {
-      try {
-        const data = await fetchPlantillas();
-        callbellTemplates = data.templates || data;
-      } catch (e) {
-        console.error('Error cargando plantillas Callbell:', e);
-      }
-    }
+/**
+ * GET /api/callbell/plantillas
+ * Devuelve un array de plantillas.
+ */
+async function fetchPlantillas() {
+  const res = await fetch(`${API_BASE}/callbell/plantillas`, {
+    method: 'GET',
+    headers: getHeaders()
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => null);
+    throw new Error(`Error ${res.status}: ${err?.error || res.statusText}`);
+  }
+
+  // Asumimos que el endpoint responde un array simple.
+  // Si responde { templates: [...] }, cambiar a `return data.templates;`
+  return await res.json();
+}
+
+/**
+ * POST /api/callbell/enviar-mensaje
+ * Envía un WhatsApp template message.
+ */
+async function enviarPlantilla(to, template_uuid, template_values = []) {
+  const res = await fetch(`${API_BASE}/callbell/enviar-mensaje`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({ to, template_uuid, template_values })
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => null);
+    throw new Error(`Error ${res.status}: ${err?.error || res.statusText}`);
+  }
+
+  return await res.json();
+}
+
+/**
+ * Precarga las plantillas antes de renderizar los pedidos.
+ */
+async function loadCallbellTemplates() {
+  try {
+    // fetchPlantillas devuelve un array de objetos { uuid, name, ... }
+    callbellTemplates = await fetchPlantillas();
+  } catch (e) {
+    console.error('Error cargando plantillas Callbell:', e);
+    callbellTemplates = [];
+  }
+}
+
+
 
   let orderStatuses = [];
   let productsList = [];
