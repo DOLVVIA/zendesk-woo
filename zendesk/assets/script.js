@@ -101,6 +101,7 @@ client.on('app.registered', async () => {
     setTimeout(() => msg.remove(), 3000);
   }
 
+
 // Carga los cargos de Stripe para un email dado
 async function loadStripeCharges(email) {
   try {
@@ -315,6 +316,66 @@ function renderStripeCharges(charges, container, panel) {
       showMessage(panel, 'Error inesperado al reembolsar PayPal', 'error');
     }
   }
+
+  
+  // ─── Función para insertar el botón de Callbell ───
+async function addCallbellButton(panel, order) {
+  // 1) Crear contenedor
+  const container = document.createElement('div');
+  container.className = 'callbell-container mt-2 mb-3';
+
+  // 2) Botón "Enviar por Callbell"
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'btn btn-primary mr-2';
+  btn.innerText = 'Enviar por Callbell';
+  container.appendChild(btn);
+
+  // 3) Dropdown de plantillas (invisible al inicio)
+  const select = document.createElement('select');
+  select.className = 'form-control d-inline-block w-auto';
+  select.style.display = 'none';
+  container.appendChild(select);
+
+  // 4) Añadir al panel
+  panel.appendChild(container);
+
+  // 5) Al hacer click: cargar plantillas y mostrar dropdown
+  btn.addEventListener('click', async () => {
+    if (select.options.length === 0) {
+      const res = await fetch('/api/callbell/templates', { headers: getHeaders() });
+      const { templates } = await res.json();
+      templates.forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t.id;
+        opt.text  = t.name;
+        select.appendChild(opt);
+      });
+    }
+    select.style.display = '';
+  });
+
+  // 6) Al seleccionar plantilla: envío
+  select.addEventListener('change', async () => {
+    const templateId  = select.value;
+    const orderNumber = order.id;
+    const res = await fetch('/api/callbell/send', {
+      method: 'POST',
+      headers: {
+        ...getHeaders(),
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ templateId, orderNumber })
+    });
+    if (res.ok) {
+      showMessage(panel, 'Mensaje enviado por Callbell');
+    } else {
+      showMessage(panel, 'Error enviando por Callbell', 'error');
+    }
+    select.style.display = 'none';
+  });
+}
+
 
   async function loadPedidos() {
     const { 'ticket.requester.email': email } = await client.get('ticket.requester.email');
@@ -672,6 +733,9 @@ function renderStripeCharges(charges, container, panel) {
     }
   });
 }
+//// BOTON CALBELL// (SOLO UNA LINEA)
+addCallbellButton(panel, pedido);
+
 
         resultados.appendChild(acc);
         resultados.appendChild(panel);
@@ -1018,8 +1082,8 @@ if (e.target.matches('.btn-edit-item')) {
   const lineIndex   = btn.dataset.index;
   const productId   = btn.dataset.productId;
   const oldVarId    = btn.dataset.variationId;
-  const oldQuantity = btn.dataset.quantity;
-  // total con IVA viene en data-total
+  const oldQuantity = Number(btn.dataset.quantity);
+  // vamos a pre-llenar con el total de la línea (unitario×cantidad)
   const oldTotal    = parseFloat(btn.dataset.total) || 0;
 
   let form = btn.nextElementSibling;
@@ -1027,13 +1091,13 @@ if (e.target.matches('.btn-edit-item')) {
     form = document.createElement('div');
     form.className = 'edit-item-form mt-2 mb-3';
 
-    // 1) Select de variaciones
+    // 1) Select variaciones
     const selVar = document.createElement('select');
     selVar.className = 'form-control mb-2';
     selVar.innerHTML = '<option value="">— Selecciona variación —</option>';
     form.appendChild(selVar);
 
-    // 2) Input de cantidad
+    // 2) Cantidad
     const qtyInput = document.createElement('input');
     qtyInput.type        = 'number';
     qtyInput.min         = '1';
@@ -1042,17 +1106,17 @@ if (e.target.matches('.btn-edit-item')) {
     qtyInput.className   = 'form-control mb-2';
     form.appendChild(qtyInput);
 
-    // 3) Input precio unitario (IVA incl.)
-    const priceInclInput = document.createElement('input');
-    priceInclInput.type        = 'number';
-    priceInclInput.step        = '0.01';
-    priceInclInput.min         = '0.01';
-    priceInclInput.value       = (oldTotal / oldQuantity).toFixed(2);
-    priceInclInput.placeholder = 'Precio unit. (IVA incl.)';
-    priceInclInput.className   = 'form-control mb-2';
-    form.appendChild(priceInclInput);
+    // 3) Total línea (IVA incl.)
+    const totalInclInput = document.createElement('input');
+    totalInclInput.type        = 'number';
+    totalInclInput.step        = '0.01';
+    totalInclInput.min         = '0.01';
+    totalInclInput.value       = oldTotal.toFixed(2);
+    totalInclInput.placeholder = 'Precio total (IVA incl.)';
+    totalInclInput.className   = 'form-control mb-2';
+    form.appendChild(totalInclInput);
 
-    // 4) Input % IVA
+    // 4) % IVA
     const vatInput = document.createElement('input');
     vatInput.type        = 'number';
     vatInput.step        = '0.01';
@@ -1062,7 +1126,7 @@ if (e.target.matches('.btn-edit-item')) {
     vatInput.className   = 'form-control mb-3';
     form.appendChild(vatInput);
 
-    // 5) Botones Aceptar / Cancelar
+    // 5) Botones ✓ / ✖
     const btnOk = document.createElement('button');
     btnOk.type      = 'button';
     btnOk.innerText = '✓ Aceptar';
@@ -1073,38 +1137,36 @@ if (e.target.matches('.btn-edit-item')) {
     btnCancel.type      = 'button';
     btnCancel.innerText = '✖ Cancelar';
     btnCancel.className = 'btn btn-secondary flex-fill';
-    btnCancel.addEventListener('click', () => {
-      form.style.display = 'none';
-    });
+    btnCancel.addEventListener('click', () => form.style.display = 'none');
 
     const btnGroup = document.createElement('div');
     btnGroup.className = 'd-flex mb-3';
     btnGroup.append(btnOk, btnCancel);
     form.appendChild(btnGroup);
 
-    // 6) Habilitar “Aceptar” solo si todos los campos tienen valor
+    // 6) Activar ✓ solo si todo está relleno
     function toggleOk() {
       btnOk.disabled = !(
         selVar.value &&
         qtyInput.value &&
-        priceInclInput.value &&
+        totalInclInput.value &&
         vatInput.value
       );
     }
-    [selVar, qtyInput, priceInclInput, vatInput].forEach(el =>
+    [selVar, qtyInput, totalInclInput, vatInput].forEach(el =>
       el.addEventListener('input', toggleOk)
     );
 
-    // 7) Cargar variaciones
+    // 7) Carga variaciones y marca la antigua
     (async () => {
-      const config = getWooConfig();
-      const paramsVar = new URLSearchParams({
+      const cfg = getWooConfig();
+      const params = new URLSearchParams({
         product_id:      productId,
-        woocommerce_url: config.woocommerce_url,
-        consumer_key:    config.consumer_key,
-        consumer_secret: config.consumer_secret
+        woocommerce_url: cfg.woocommerce_url,
+        consumer_key:    cfg.consumer_key,
+        consumer_secret: cfg.consumer_secret
       });
-      const resVar = await fetch(`${API_BASE}/get-variaciones?${paramsVar}`, {
+      const resVar = await fetch(`${API_BASE}/get-variaciones?${params}`, {
         headers: getHeaders()
       });
       const vars = await resVar.json();
@@ -1118,115 +1180,91 @@ if (e.target.matches('.btn-edit-item')) {
       toggleOk();
     })();
 
-    // 8) Al pulsar “Aceptar”
+    // 8) Al pulsar ✓, recalculamos a nivel de LÍNEA y enviamos
     btnOk.addEventListener('click', async () => {
-      const newVarId   = selVar.value;
-      const newQty     = qtyInput.value;
-      const unitIncl   = parseFloat(priceInclInput.value.replace(',', '.'));
-      const vatRatePct = parseFloat(vatInput.value.replace(',', '.'));
-      const config     = getWooConfig();
+      const newVarId   = Number(selVar.value);
+      const qtyNum     = Number(qtyInput.value);
+      const totalIncl  = parseFloat(totalInclInput.value.replace(',', '.'));
+      const vatPct     = parseFloat(vatInput.value.replace(',', '.'));
+      const cfg        = getWooConfig();
 
-      try {
-        // 8.1) Cambiar a pending
-        await fetch(
-          `${API_BASE}/cambiar-estado?` +
-          new URLSearchParams({
-            order_id:        orderId,
-            status:          'pending',
-            woocommerce_url: config.woocommerce_url,
-            consumer_key:    config.consumer_key,
-            consumer_secret: config.consumer_secret
-          }),
-          { method: 'PUT', headers: getHeaders() }
-        );
+      // 8.1) Paso a pending
+      await fetch(
+        `${API_BASE}/cambiar-estado?` +
+        new URLSearchParams({
+          order_id:        orderId,
+          status:          'pending',
+          woocommerce_url: cfg.woocommerce_url,
+          consumer_key:    cfg.consumer_key,
+          consumer_secret: cfg.consumer_secret
+        }),
+        { method: 'PUT', headers: getHeaders() }
+      );
 
-        // 8.2) Eliminar la línea original
-        await fetch(
-          `${API_BASE}/eliminar-item?` +
-          new URLSearchParams({
-            order_id:        orderId,
-            line_index:      lineIndex,
-            woocommerce_url: config.woocommerce_url,
-            consumer_key:    config.consumer_key,
-            consumer_secret: config.consumer_secret
-          }),
-          { method: 'DELETE', headers: getHeaders() }
-        );
+      // 8.2) Borra la línea antigua
+      await fetch(
+        `${API_BASE}/eliminar-item?` +
+        new URLSearchParams({
+          order_id:        orderId,
+          line_index:      lineIndex,
+          woocommerce_url: cfg.woocommerce_url,
+          consumer_key:    cfg.consumer_key,
+          consumer_secret: cfg.consumer_secret
+        }),
+        { method: 'DELETE', headers: getHeaders() }
+      );
 
-        // 8.3) Calcular valores de precio e impuestos
-        const rate      = vatRatePct / 100;
-        const priceExcl = parseFloat((unitIncl / (1 + rate)).toFixed(2));
-        const taxUnit   = parseFloat((unitIncl - priceExcl).toFixed(2));
-        const qtyNum    = Number(newQty);
-        const subtotal  = parseFloat((priceExcl * qtyNum).toFixed(2));
-        const totalTax  = parseFloat((taxUnit * qtyNum).toFixed(2));
-        const totalLine = parseFloat((subtotal + totalTax).toFixed(2));
+      // 8.3) Cálculo de totales a nivel de LÍNEA
+      const rate      = vatPct / 100;
+      const subtotal  = parseFloat((totalIncl / (1 + rate)).toFixed(2));
+      const totalTax  = parseFloat((totalIncl - subtotal).toFixed(2));
+      // unitario neto (opcional)
+      const priceExcl = parseFloat((subtotal / qtyNum).toFixed(2));
 
-        // 8.4) Añadir la nueva línea CON PRECIO + IVA via JSON body
-        const payload = {
-          product_id:      Number(productId),
-          variation_id:    Number(newVarId),
-          quantity:        qtyNum,
-          price:           priceExcl.toFixed(2),
-          subtotal:        subtotal.toFixed(2),
-          total:           totalLine.toFixed(2),
-          subtotal_tax:    totalTax.toFixed(2),
-          total_tax:       totalTax.toFixed(2),
-          woocommerce_url: config.woocommerce_url,
-          consumer_key:    config.consumer_key,
-          consumer_secret: config.consumer_secret
-        };
+      // 8.4) Payload con TOTAL exacto de la línea
+      const payload = {
+        product_id:   Number(productId),
+        variation_id: newVarId,
+        quantity:     qtyNum,
+        price:        priceExcl.toFixed(2),
+        subtotal:     subtotal.toFixed(2),
+        total:        totalIncl.toFixed(2),
+        subtotal_tax: totalTax.toFixed(2),
+        total_tax:    totalTax.toFixed(2),
+        ...cfg
+      };
 
-        const resAdd = await fetch(
-          `${API_BASE}/anadir-item?order_id=${orderId}`,       // sólo order_id en query
-          {
-            method:  'POST',
-            headers: {
-              ...getHeaders(),
-              'Content-Type': 'application/json'               // importante para JSON
-            },
-            body: JSON.stringify(payload)                     // Manda todo en el body
-          }
-        );
-
-        if (!resAdd.ok) {
-          // 1) Captura el body como texto
-          const text = await resAdd.text();
-          console.error('⛔ /anadir-item error (texto):', text);
-
-          // 2) Intenta parsear JSON para extraer el error
-          let errJson = {};
-          try {
-            errJson = JSON.parse(text);
-          } catch (e) {
-            // no era JSON válido
-          }
-          console.error('⛔ /anadir-item error (JSON):', errJson);
-
-          // 3) Muestra al usuario lo que venga
-          const msg = errJson.error || text || 'Error desconocido';
-          return showMessage(form.parentNode, `Error al añadir: ${msg}`, 'error');
+      // 8.5) Añade la línea nueva
+      const resAdd = await fetch(
+        `${API_BASE}/anadir-item?order_id=${orderId}`,
+        {
+          method:  'POST',
+          headers: {
+            ...getHeaders(),
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(payload)
         }
-
-        // 8.5) Éxito
-        showMessage(form.parentNode, 'Artículo actualizado');
-        await loadPedidos();
-
-      } catch (error) {
-        console.error('Error al editar ítem:', error);
-        showMessage(form.parentNode, 'Error inesperado al actualizar', 'error');
+      );
+      if (!resAdd.ok) {
+        const text = await resAdd.text();
+        return showMessage(form.parentNode, `Error: ${text}`, 'error');
       }
+
+      // 8.6) Vuelve a cargar pedidos y cierra
+      showMessage(form.parentNode, 'Artículo actualizado');
+      await loadPedidos();
+      form.style.display = 'none';
     });
 
-    // 9) Insertar el form justo después del botón
+    // 9) Inserta el form tras el botón
     btn.insertAdjacentElement('afterend', form);
   }
 
-  // 10) Alternar visibilidad del form
+  // 10) Toggle visibilidad
   form.style.display = form.style.display === 'none' ? 'block' : 'none';
   return;
 }
-
 
 // ——— 6) Añadir artículo con precio TOTAL (IVA incluido) ———
 if (e.target.matches('.btn-add-item')) {
@@ -1250,12 +1288,15 @@ if (e.target.matches('.btn-add-item')) {
     });
     form.appendChild(selProd);
 
-    // 2) Select de variaciones (oculto hasta elegir producto)
+    // 2) Select de variaciones (oculto hasta saber si hay)
     const selVar = document.createElement('select');
     selVar.className = 'form-control mb-2';
     selVar.innerHTML = '<option value="">— Selecciona variación —</option>';
     selVar.style.display = 'none';
     form.appendChild(selVar);
+
+    // Bandera para saber si el producto tiene variaciones
+    let hasVariations = false;
 
     // 3) Input de cantidad
     const qtyInput = document.createElement('input');
@@ -1315,14 +1356,22 @@ if (e.target.matches('.btn-add-item')) {
         });
         const res = await fetch(`${API_BASE}/get-variaciones?${params}`, { headers: getHeaders() });
         const vars = await res.json();
-        vars.forEach(v => {
-          const opt = document.createElement('option');
-          opt.value = v.id;
-          opt.text  = v.attributes.map(a => `${a.name}: ${a.option}`).join(', ');
-          selVar.appendChild(opt);
-        });
-        selVar.style.display = '';
+
+        if (vars.length > 0) {
+          hasVariations = true;
+          vars.forEach(v => {
+            const opt = document.createElement('option');
+            opt.value = v.id;
+            opt.text  = v.attributes.map(a => `${a.name}: ${a.option}`).join(', ');
+            selVar.appendChild(opt);
+          });
+          selVar.style.display = '';  // mostramos el select
+        } else {
+          hasVariations = false;
+          selVar.style.display = 'none'; // no hay variaciones
+        }
       } else {
+        hasVariations = false;
         selVar.style.display = 'none';
       }
       toggleOk();
@@ -1330,53 +1379,48 @@ if (e.target.matches('.btn-add-item')) {
 
     // 8) Habilitar “Aceptar” sólo cuando todo esté completo
     function toggleOk() {
-      btnOk.disabled = !(
-        selProd.value &&
-        selVar.value &&
-        qtyInput.value &&
-        totalInclInput.value &&
-        vatInput.value
-      );
+      const basicFilled = selProd.value && qtyInput.value && totalInclInput.value && vatInput.value;
+      const varFilled   = !hasVariations || selVar.value;
+      btnOk.disabled    = !(basicFilled && varFilled);
     }
     [selProd, selVar, qtyInput, totalInclInput, vatInput].forEach(el =>
       el.addEventListener('input', toggleOk)
     );
 
-    // 9) Envío: calcular unitario, desglosar impuestos y llamar a la API
+    // 9) Envío: cálculo de totales a nivel de LÍNEA (para no perder céntimos)
     btnOk.addEventListener('click', async () => {
       const product_id   = Number(selProd.value);
-      const variation_id = Number(selVar.value);
+      const variation_id = hasVariations ? Number(selVar.value) : null;
       const qtyNum       = Number(qtyInput.value);
       const totalIncl    = parseFloat(totalInclInput.value.replace(',', '.'));
       const vatRatePct   = parseFloat(vatInput.value.replace(',', '.'));
 
-      // — 9.1) Dividir totalIncl entre cantidad para obtener unitario IVA incl.
-      const unitIncl = parseFloat((totalIncl / qtyNum).toFixed(2));
-      console.log('🔎 unitIncl:', unitIncl);
+      // 9.1) Tipo de IVA
+      const rate = vatRatePct / 100;
 
-      // — 9.2) Calcular neto e impuestos
-      const rate       = vatRatePct / 100;
-      const priceExcl  = parseFloat((unitIncl / (1 + rate)).toFixed(2));
-      const taxUnit    = parseFloat((unitIncl - priceExcl).toFixed(2));
-      const subtotalExcl = parseFloat((priceExcl * qtyNum).toFixed(2));
-      const totalTax     = parseFloat((taxUnit * qtyNum).toFixed(2));
-      const totalLine    = parseFloat((subtotalExcl + totalTax).toFixed(2));
+      // 9.2) Subtotal excluyendo IVA (línea entera), redondeo único
+      const subtotalExcl = parseFloat((totalIncl / (1 + rate)).toFixed(2));
 
-      // — 9.3) Montar payload JSON completo
+      // 9.3) IVA total de la línea
+      const totalTax = parseFloat((totalIncl - subtotalExcl).toFixed(2));
+
+      // 9.4) Unitarios si los necesitas
+      const priceExcl = parseFloat((subtotalExcl / qtyNum).toFixed(2));
+
+      // 9.5) Payload manteniendo el total exacto
       const payload = {
-        product_id:   product_id,
-        quantity:     qtyNum,
+        product_id,
+        quantity:  qtyNum,
         ...(variation_id ? { variation_id } : {}),
-        price:        priceExcl.toFixed(2),
-        subtotal:     subtotalExcl.toFixed(2),
-        total:        totalLine.toFixed(2),
-        subtotal_tax: totalTax.toFixed(2),
-        total_tax:    totalTax.toFixed(2),
+        subtotal:      subtotalExcl.toFixed(2),
+        total:         totalIncl.toFixed(2),
+        subtotal_tax:  totalTax.toFixed(2),
+        total_tax:     totalTax.toFixed(2),
+        price:         priceExcl.toFixed(2),
         ...getWooConfig()
       };
-      console.log('📬 payload anadir-item:', payload);
 
-      // — 9.4) Llamada POST con JSON body
+      // 9.6) Llamada POST con JSON body
       try {
         const res = await fetch(
           `${API_BASE}/anadir-item?order_id=${orderId}`,
@@ -1389,20 +1433,15 @@ if (e.target.matches('.btn-add-item')) {
             body: JSON.stringify(payload)
           }
         );
-        console.log('✅ anadir-item status:', res.status);
-
         if (!res.ok) {
           const text = await res.text();
-          console.error('❌ anadir-item error:', text);
           return showMessage(form.parentNode, `Error: ${text}`, 'error');
         }
-
         showMessage(form.parentNode, 'Artículo añadido');
         await loadPedidos();
         form.style.display = 'none';
-
       } catch (err) {
-        console.error('🛑 Exception añadiendo artículo:', err);
+        console.error('Error añadiendo artículo:', err);
         showMessage(form.parentNode, 'Error inesperado al añadir', 'error');
       }
     });
@@ -1415,6 +1454,7 @@ if (e.target.matches('.btn-add-item')) {
   form.style.display = form.style.display === 'none' ? 'block' : 'none';
   return;
 }
+
 
   });
 
