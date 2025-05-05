@@ -24,6 +24,36 @@ client.on('app.registered', async () => {
     return { stripe_secret_key: SETTINGS.stripe_secret_key };
   }
 
+    // --- CALLBELL FUNCTIONS ---
+    let callbellTemplates = [];
+
+    async function fetchPlantillas() {
+      return client.request({
+        url: `${client.serverUrl()}/api/callbell/plantillas`,
+        type: 'GET',
+        dataType: 'json'
+      });
+    }
+  
+    async function enviarPlantilla(to, template_uuid, template_values) {
+      return client.request({
+        url: `${client.serverUrl()}/api/callbell/enviar-mensaje`,
+        type: 'POST',
+        contentType: 'application/json',
+        dataType: 'json',
+        data: { to, template_uuid, template_values }
+      });
+    }
+  
+    async function loadCallbellTemplates() {
+      try {
+        const data = await fetchPlantillas();
+        callbellTemplates = data.templates || data;
+      } catch (e) {
+        console.error('Error cargando plantillas Callbell:', e);
+      }
+    }
+
   let orderStatuses = [];
   let productsList = [];
   let citiesList = [];
@@ -339,6 +369,9 @@ function renderStripeCharges(charges, container, panel) {
 
       await loadCities();
       await loadProvincias();
+      
+
+  
 
       for (const pedido of pedidos) {
         console.log('🔍 meta_data del pedido:', pedido.meta_data);
@@ -670,6 +703,66 @@ function renderStripeCharges(charges, container, panel) {
       showMessage(panel, '❌ Error inesperado al enviar transferencia', 'error');
     }
   });
+
+          // ————— Sección CALLBELL —————
+          const callbellDetails = document.createElement('details');
+          callbellDetails.className = 'callbell-section mt-2 mb-3';
+          callbellDetails.innerHTML = `
+            <summary class="font-weight-bold">Enviar WhatsApp Template</summary>
+          `;
+  
+          const callbellForm = document.createElement('form');
+          callbellForm.className = 'callbell-form p-2';
+          callbellForm.innerHTML = `
+            <div class="form-group">
+              <label>Plantilla</label>
+              <select class="form-control mb-2" name="template">
+                ${callbellTemplates.map(t => `
+                  <option value="${t.uuid}">
+                    ${t.name || t.uuid}
+                  </option>`).join('')}
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Teléfono</label>
+              <input type="tel"
+                     name="to"
+                     class="form-control mb-2"
+                     placeholder="+34123456789"
+                     required />
+            </div>
+            <div class="form-group">
+              <label>Valores (separados por coma)</label>
+              <input type="text"
+                     name="values"
+                     class="form-control mb-2"
+                     placeholder="Juan, Pedido #123" />
+            </div>
+            <button type="submit" class="btn btn-primary">
+              Enviar WhatsApp
+            </button>
+          `;
+  
+          callbellDetails.appendChild(callbellForm);
+          panel.appendChild(callbellDetails);
+  
+          // Manejador de envío
+          callbellForm.addEventListener('submit', async ev => {
+            ev.preventDefault();
+            const to = callbellForm.to.value.trim();
+            const template_uuid = callbellForm.template.value;
+            const template_values = callbellForm.values.value
+              .split(',')
+              .map(v => v.trim())
+              .filter(v => v);
+            try {
+              const res = await enviarPlantilla(to, template_uuid, template_values);
+              showMessage(panel, `✅ Mensaje enviado (ID: ${res.message.uuid})`);
+            } catch (err) {
+              console.error('Error enviando WhatsApp:', err);
+              showMessage(panel, '❌ Error al enviar mensaje', 'error');
+            }
+          });  
 }
         resultados.appendChild(acc);
         resultados.appendChild(panel);
@@ -1398,4 +1491,5 @@ if (e.target.matches('.btn-add-item')) {
   await loadCities();
   await loadProvincias();
   await loadPedidos();
+  await loadCallbellTemplates();
 });
