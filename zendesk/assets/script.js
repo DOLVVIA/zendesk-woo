@@ -342,15 +342,15 @@ async function addCallbellButton(panel, order) {
 
   // 4) Campo de teléfono editable
   const phoneInput = document.createElement('input');
-  phoneInput.type = 'tel';
-  phoneInput.className = 'form-control mb-2';
+  phoneInput.type        = 'tel';
+  phoneInput.className   = 'form-control mb-2';
   phoneInput.placeholder = 'Teléfono para envío';
-  phoneInput.value = (order.billing.phone || '').trim();
+  phoneInput.value       = (order.billing.phone || '').trim();
   cbContent.appendChild(phoneInput);
 
   // 5) Botón de envío
   const btn = document.createElement('button');
-  btn.type = 'button';
+  btn.type      = 'button';
   btn.className = 'btn btn-primary btn-block';
   btn.innerText = 'Enviar';
   cbContent.appendChild(btn);
@@ -364,17 +364,14 @@ async function addCallbellButton(panel, order) {
     if (cbDetails.open && !loaded) {
       try {
         const res = await fetch(`${API_BASE}/callbell/templates`, {
-          headers: {
-            ...getHeaders(),
-            'x-callbell-token': SETTINGS.callbell_token
-          }
+          headers: getHeaders()
         });
         if (!res.ok) throw new Error(await res.text());
         const { templates } = await res.json();
         templates.forEach(t => {
           const o = document.createElement('option');
-          o.value = t.uuid;    // uuid para el envío
-          o.text  = t.title;   // título legible
+          o.value = t.uuid;   // uuid para el envío
+          o.text  = t.title;  // título legible
           sel.appendChild(o);
         });
         loaded = true;
@@ -412,8 +409,7 @@ async function addCallbellButton(panel, order) {
         method: 'POST',
         headers: {
           ...getHeaders(),
-          'Content-Type': 'application/json',
-          'x-callbell-token': SETTINGS.callbell_token
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({
           templateId:  sel.value,
@@ -425,11 +421,12 @@ async function addCallbellButton(panel, order) {
       showMessage(panel, 'Mensaje enviado por Callbell');
       cbDetails.open = false;
     } catch (err) {
-      console.error(err);
+      console.error('Error enviando mensaje por Callbell:', err);
       showMessage(panel, 'Error enviando mensaje', 'error');
     }
   });
 }
+
   async function loadPedidos() {
     const { 'ticket.requester.email': email } = await client.get('ticket.requester.email');
     if (!email) return;

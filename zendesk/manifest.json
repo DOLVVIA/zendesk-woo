@@ -87,6 +87,12 @@
       "type": "text",
       "required": true,
       "secure": false
+    },
+    {
+      "name": "callbell_channel_uuid",
+      "type": "text",
+      "required": true,
+      "secure": false
     }
   ]
 }
