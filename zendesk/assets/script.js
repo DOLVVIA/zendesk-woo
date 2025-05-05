@@ -364,7 +364,11 @@ async function addCallbellButton(panel, order) {
     if (cbDetails.open && !loaded) {
       try {
         const res = await fetch(`${API_BASE}/callbell/templates`, {
-          headers: getHeaders()
+          headers: {
+            ...getHeaders(),                                    // x-zendesk-secret
+            'x-callbell-token': SETTINGS.callbell_token,        // token desde manifest
+            'x-callbell-channel-uuid': SETTINGS.callbell_channel_uuid  // channel UUID
+          }
         });
         if (!res.ok) throw new Error(await res.text());
         const { templates } = await res.json();
@@ -408,8 +412,10 @@ async function addCallbellButton(panel, order) {
       const res = await fetch(`${API_BASE}/callbell/send`, {
         method: 'POST',
         headers: {
-          ...getHeaders(),
-          'Content-Type': 'application/json'
+          ...getHeaders(),                                    // x-zendesk-secret
+          'Content-Type': 'application/json',
+          'x-callbell-token': SETTINGS.callbell_token,        // token desde manifest
+          'x-callbell-channel-uuid': SETTINGS.callbell_channel_uuid  // channel UUID
         },
         body: JSON.stringify({
           templateId:  sel.value,
