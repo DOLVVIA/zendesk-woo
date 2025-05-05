@@ -3,16 +3,12 @@ const client = ZAFClient.init();
 
 client.on('app.registered', async () => {
   const { settings: SETTINGS } = await client.metadata();
-  console.log("CONFIG:", SETTINGS);
-  console.log("→ callbell_channel_uuid =", SETTINGS.callbell_channel_uuid);
   const API_BASE = 'https://zendesk-woo.onrender.com/api';
 
   function getHeaders() {
     return {
       'Content-Type': 'application/json',
-      'x-zendesk-secret': SETTINGS.x_zendesk_secret,
-      'x-callbell-token':         SETTINGS.callbell_token,
-      'x-callbell-channel-uuid':  SETTINGS.callbell_channel_uuid
+      'x-zendesk-secret': SETTINGS.x_zendesk_secret
     };
   }
 
@@ -319,94 +315,6 @@ function renderStripeCharges(charges, container, panel) {
       showMessage(panel, 'Error inesperado al reembolsar PayPal', 'error');
     }
   }
-
-// ─── Función para insertar el botón de Callbell ───
-async function addCallbellButton(panel, order) {
-  const cbDetails = document.createElement('details');
-  cbDetails.className = 'callbell-section mt-2 mb-3';
-  cbDetails.innerHTML = `
-    <summary class="font-weight-bold">Enviar mensaje por Callbell</summary>
-    <div class="callbell-content p-3">
-      <select class="form-control mb-2">
-        <option value="">— Selecciona plantilla —</option>
-      </select>
-      <input type="tel" class="form-control mb-2" placeholder="Teléfono para envío" value="${(order.billing.phone||'').trim()}" />
-      <button type="button" class="btn btn-primary btn-block">Enviar</button>
-    </div>
-  `;
-  panel.appendChild(cbDetails);
-
-  const sel        = cbDetails.querySelector('select');
-  const phoneInput = cbDetails.querySelector('input[type=tel]');
-  const btn        = cbDetails.querySelector('button');
-
-  let loaded = false;
-  cbDetails.addEventListener('toggle', async () => {
-    if (cbDetails.open && !loaded) {
-      try {
-        const res = await fetch(`${API_BASE}/callbell/templates`, {
-          headers: {
-            'x-zendesk-secret': SETTINGS.x_zendesk_secret,
-            'x-callbell-token': SETTINGS.callbell_token,
-            'x-callbell-channel-uuid': SETTINGS.callbell_channel_uuid
-          }
-        });
-        if (!res.ok) throw new Error(await res.text());
-        const { templates } = await res.json();
-        templates.forEach(t => {
-          const o = document.createElement('option');
-          o.value = t.uuid;
-          o.text  = t.title;
-          sel.appendChild(o);
-        });
-        loaded = true;
-      } catch (err) {
-        console.error(err);
-        cbDetails.querySelector('.callbell-content').innerHTML =
-          '<p style="color:red;">Error cargando plantillas</p>';
-      }
-    }
-  });
-
-  btn.addEventListener('click', async () => {
-    if (!sel.value) return alert('Selecciona una plantilla');
-    let phone = phoneInput.value.trim();
-    if (!phone) return alert('Introduce un teléfono válido');
-
-    // normalización España
-    if (phone.startsWith('00')) phone = '+' + phone.slice(2);
-    else if (!phone.startsWith('+') && /^\d{9}$/.test(phone)) phone = '+34' + phone;
-    else {
-      const d = phone.replace(/\D/g,'');
-      if (d.length===9 && !phone.startsWith('+')) phone = '+34' + d;
-    }
-
-    try {
-      const res = await fetch(`${API_BASE}/callbell/send`, {
-        method: 'POST',
-        headers: {
-          'x-zendesk-secret': SETTINGS.x_zendesk_secret,
-          'Content-Type':      'application/json',
-          'x-callbell-token':  SETTINGS.callbell_token,
-          'x-callbell-channel-uuid': SETTINGS.callbell_channel_uuid
-        },
-        body: JSON.stringify({
-          template_id:  sel.value,
-          orderNumber: order.id,
-          phone
-        })
-      });
-      if (!res.ok) throw new Error(await res.text());
-      showMessage(panel, 'Mensaje enviado por Callbell');
-      cbDetails.open = false;
-    } catch (err) {
-      console.error(err);
-      showMessage(panel, 'Error enviando mensaje', 'error');
-    }
-  });
-}
-
-
   async function loadPedidos() {
     const { 'ticket.requester.email': email } = await client.get('ticket.requester.email');
     if (!email) return;
@@ -763,10 +671,6 @@ async function addCallbellButton(panel, order) {
     }
   });
 }
-//// BOTON CALBELL// (SOLO UNA LINEA)
-addCallbellButton(panel, pedido);
-
-
         resultados.appendChild(acc);
         resultados.appendChild(panel);
 
