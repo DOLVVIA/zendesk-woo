@@ -319,83 +319,89 @@ function renderStripeCharges(charges, container, panel) {
 
   
   // ─── Función para insertar el botón de Callbell ───
-  async function addCallbellButton(panel, order) {
-    // 1) Creamos el details igual que en Stripe/PayPal
-    const cbDetails = document.createElement('details');
-    cbDetails.className = 'callbell-section mt-2 mb-3';
-  
-    const cbSummary = document.createElement('summary');
-    cbSummary.className = 'font-weight-bold';
-    cbSummary.innerText = 'Enviar mensaje por Callbell';
-    cbDetails.appendChild(cbSummary);
-  
-    // 2) Contenedor interior
-    const cbContent = document.createElement('div');
-    cbContent.className = 'callbell-content p-3';
-    cbDetails.appendChild(cbContent);
-  
-    // 3) Select de plantillas full-width
-    const sel = document.createElement('select');
-    sel.className = 'form-control mb-2';
-    sel.innerHTML = '<option value=\"\">— Selecciona plantilla —</option>';
-    cbContent.appendChild(sel);
-  
-    // 4) Botón de envío
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'btn btn-primary btn-block';
-    btn.innerText = 'Enviar';
-    cbContent.appendChild(btn);
-  
-    // 5) Insertamos todo en el panel
-    panel.appendChild(cbDetails);
-  
-    // 6) Carga plantillas solo una vez al abrir
-    let loaded = false;
-    cbDetails.addEventListener('toggle', async () => {
-      if (cbDetails.open && !loaded) {
-        try {
-          const res = await fetch(`${API_BASE}/callbell/templates`, { headers: getHeaders() });
-          if (!res.ok) throw new Error(await res.text());
-          const { templates } = await res.json();
-          templates.forEach(t => {
-            const o = document.createElement('option');
-            o.value = t.id;
-            o.text  = t.name;
-            sel.appendChild(o);
-          });
-          loaded = true;
-        } catch (err) {
-          cbContent.innerHTML = '<p style="color:red;">Error cargando plantillas</p>';
-          console.error(err);
-        }
-      }
-    });
-  
-    // 7) Al enviar, llamamos al endpoint correcto
-    btn.addEventListener('click', async () => {
-      if (!sel.value) return alert('Selecciona una plantilla');
+async function addCallbellButton(panel, order) {
+  // 1) Creamos el details igual que en Stripe/PayPal
+  const cbDetails = document.createElement('details');
+  cbDetails.className = 'callbell-section mt-2 mb-3';
+
+  const cbSummary = document.createElement('summary');
+  cbSummary.className = 'font-weight-bold';
+  cbSummary.innerText = 'Enviar mensaje por Callbell';
+  cbDetails.appendChild(cbSummary);
+
+  // 2) Contenedor interior
+  const cbContent = document.createElement('div');
+  cbContent.className = 'callbell-content p-3';
+  cbDetails.appendChild(cbContent);
+
+  // 3) Select de plantillas full-width
+  const sel = document.createElement('select');
+  sel.className = 'form-control mb-2';
+  sel.innerHTML = '<option value="">— Selecciona plantilla —</option>';
+  cbContent.appendChild(sel);
+
+  // 4) Botón de envío
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'btn btn-primary btn-block';
+  btn.innerText = 'Enviar';
+  cbContent.appendChild(btn);
+
+  // 5) Insertamos todo en el panel
+  panel.appendChild(cbDetails);
+
+  // 6) Carga plantillas solo una vez al abrir
+  let loaded = false;
+  cbDetails.addEventListener('toggle', async () => {
+    if (cbDetails.open && !loaded) {
       try {
-        const res = await fetch(`${API_BASE}/callbell/send`, {
-          method: 'POST',
-          headers: { 
-            ...getHeaders(), 
-            'Content-Type': 'application/json' 
-          },
-          body: JSON.stringify({
-            templateId:  sel.value,
-            orderNumber: order.id
-          })
+        const res = await fetch(`${API_BASE}/callbell/templates`, {
+          headers: {
+            ...getHeaders(),
+            'x-callbell-token': SETTINGS.callbell_token
+          }
         });
         if (!res.ok) throw new Error(await res.text());
-        showMessage(panel, 'Mensaje enviado por Callbell');
-        cbDetails.open = false;
+        const { templates } = await res.json();
+        templates.forEach(t => {
+          const o = document.createElement('option');
+          o.value = t.id;
+          o.text  = t.name;
+          sel.appendChild(o);
+        });
+        loaded = true;
       } catch (err) {
+        cbContent.innerHTML = '<p style="color:red;">Error cargando plantillas</p>';
         console.error(err);
-        showMessage(panel, 'Error enviando mensaje', 'error');
       }
-    });
-  }
+    }
+  });
+
+  // 7) Al enviar, llamamos al endpoint correcto
+  btn.addEventListener('click', async () => {
+    if (!sel.value) return alert('Selecciona una plantilla');
+    try {
+      const res = await fetch(`${API_BASE}/callbell/send`, {
+        method: 'POST',
+        headers: {
+          ...getHeaders(),
+          'Content-Type': 'application/json',
+          'x-callbell-token': SETTINGS.callbell_token
+        },
+        body: JSON.stringify({
+          templateId:  sel.value,
+          orderNumber: order.id
+        })
+      });
+      if (!res.ok) throw new Error(await res.text());
+      showMessage(panel, 'Mensaje enviado por Callbell');
+      cbDetails.open = false;
+    } catch (err) {
+      console.error(err);
+      showMessage(panel, 'Error enviando mensaje', 'error');
+    }
+  });
+}
 
   async function loadPedidos() {
     const { 'ticket.requester.email': email } = await client.get('ticket.requester.email');

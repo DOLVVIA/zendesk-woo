@@ -1,20 +1,19 @@
-// routes/callbell.js
 const express = require('express');
-const router = express.Router();
-const fetch  = require('node-fetch');
+const router  = express.Router();
+const fetch   = require('node-fetch');
 const CALLBELL_API = 'https://api.callbell.eu/v1';
 
-// Middleware para validar x-zendesk-secret y cargar el token de Callbell
+// Middleware para validar x-zendesk-secret y leer token desde header
 function authCallbell(req, res, next) {
   // 1) Comprueba el secreto de Zendesk
   const incoming = req.get('x-zendesk-secret');
   if (!incoming || incoming !== process.env.ZENDESK_SHARED_SECRET) {
     return res.status(401).json({ error: 'Unauthorized: x-zendesk-secret inválido' });
   }
-  // 2) Comprueba que tengas CALLBELL_TOKEN en env
-  const token = process.env.CALLBELL_TOKEN;
+  // 2) Lee el token de Callbell enviado por el front
+  const token = req.get('x-callbell-token');
   if (!token) {
-    return res.status(500).json({ error: 'Falta configurar CALLBELL_TOKEN' });
+    return res.status(400).json({ error: 'Falta header x-callbell-token' });
   }
   req.cbToken = token;
   next();
@@ -62,8 +61,8 @@ router.post('/send', authCallbell, async (req, res) => {
     const resp = await fetch(`${CALLBELL_API}/messages`, {
       method: 'POST',
       headers: {
-        'Content-Type':  'application/json',
-        Authorization:   `Bearer ${req.cbToken}`
+        'Content-Type': 'application/json',
+        Authorization:  `Bearer ${req.cbToken}`
       },
       body: JSON.stringify({ to: phone, templateId, variables: { orderNumber } })
     });
