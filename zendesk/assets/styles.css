@@ -35,13 +35,13 @@ body {
 }
 .accordion:hover { background: #f7f7f7; }
 .accordion::after {
-  content: '\f107';             /* FontAwesome chevron-down */
+  content: '\f107';
   font-family: "Font Awesome 5 Free";
   font-weight: 900;
   transition: transform .3s;
 }
 .accordion.active::after {
-  content: '\f106';             /* FontAwesome chevron-up */
+  content: '\f106';
   transform: rotate(0);
 }
 
@@ -53,7 +53,7 @@ body {
   border-top: none;
   border-radius: 0 0 6px 6px;
   padding: 20px;
-  margin-bottom: 10px;
+  margin-bottom: 2rem;
   animation: fadeIn .3s ease-out;
   overflow: hidden;
 }
@@ -112,11 +112,11 @@ button {
 button:hover { opacity: 0.9; }
 
 /* — Iconos antes de cada botón — */
-.btn-edit-item::before     { content: "\270E  "; } /* ✎ */
-.btn-delete-item::before   { content: "\1F5D1  "; } /* 🗑 */
-.btn-add-item::before      { content: "\2795  "; } /* ➕ */
-.btn-change-status::before { content: "\1F504  "; } /* 🔄 */
-.btn-edit-address::before  { content: "\1F4CD  "; } /* 📍 */
+.btn-edit-item::before     { content: "\270E  "; }
+.btn-delete-item::before   { content: "\1F5D1  "; }
+.btn-add-item::before      { content: "\2795  "; }
+.btn-change-status::before { content: "\1F504  "; }
+.btn-edit-address::before  { content: "\1F4CD  "; }
 
 /* — Colores de botones — */
 .btn-edit-item       { background: #ffd966; color: #333; }
@@ -127,7 +127,7 @@ button:hover { opacity: 0.9; }
 
 /* — Select de cambio de estado — */
 select.select-status {
-  display: block; width: 100%; padding: 8px;
+  width: 100%; padding: 8px;
   margin: 8px 0; font-size: 1rem;
   border: 1px solid #ccc; border-radius: 4px;
 }
@@ -146,12 +146,8 @@ select.select-status {
   align-items: center; column-gap: 12px;
   font-weight: bold;
 }
-.inline-edit-form button[type="submit"] {
-  background: #2ecc71; color: #fff;
-}
-.inline-edit-form .cancel-edit {
-  background: #e74c3c; color: #fff;
-}
+.inline-edit-form button[type="submit"] { background: #2ecc71; color: #fff; }
+.inline-edit-form .cancel-edit          { background: #e74c3c; color: #fff; }
 
 /* — Inline-Toast — */
 .inline-msg {
@@ -195,12 +191,10 @@ select.select-status {
 .stripe-section h4 {
   font-size: 1.1rem;
   margin-bottom: .5em;
-  display: flex;
-  align-items: center;
+  display: flex; align-items: center;
 }
 .stripe-section h4::before {
-  content: "\1F4B3"; /* 💳 */
-  margin-right: .5em;
+  content: "\1F4B3"; margin-right: .5em;
 }
 .stripe-section details {
   background: #fafafa;
@@ -211,175 +205,65 @@ select.select-status {
 }
 .stripe-section details:hover { background: #f0f0f0; }
 .stripe-payments {
-  list-style: none;
-  padding-left: 0;
-  margin-top: .5em;
+  list-style: none; padding-left: 0; margin-top: .5em;
 }
 .stripe-payments li {
-  display: flex;
-  flex-direction: column;
-  margin-bottom: .75em;
-  background: #fff;
-  border: 1px solid #eee;
-  border-radius: 4px;
-  padding: .8em;
+  display: flex; flex-direction: column; margin-bottom: .75em;
+  background: #fff; border: 1px solid #eee;
+  border-radius: 4px; padding: .8em;
   box-shadow: 0 1px 4px rgba(0,0,0,0.05);
 }
 .payment-info {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: .5em;
+  display: flex; justify-content: space-between;
+  align-items: center; margin-bottom: .5em;
 }
-.badge {
-  margin-left: .5em;
-  padding: .2em .6em;
-  border-radius: 4px;
-  color: white;
-  font-size: .85em;
-  font-weight: bold;
-}
-.badge.success { background: #2ecc71; }
-.badge.failed  { background: #e74c3c; }
-.refund-buttons {
-  display: flex;
-  gap: .5em;
-}
-.refund-buttons button {
-  flex: 1;
-  font-size: .9em;
-  padding: .5em .8em;
-  border: none;
-  border-radius: 4px;
-  background: #3498db;
-  color: #fff;
-  transition: background .2s;
-}
-.refund-buttons button:first-child {
-  background: #16a085; /* completo */
-}
-.refund-buttons button:last-child {
-  background: #f39c12; /* parcial */
-}
-.refund-buttons button:hover {
-  opacity: 0.9;
-}
-
-/* Formulario inline para reembolso parcial */
-.partial-refund-form {
-  display: none;
-  margin-top: 0.5em;
-  gap: 0.5em;
-  align-items: center;
-}
-.partial-refund-form input {
-  width: 6em;
-  padding: 0.3em;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-}
-.partial-refund-form button {
-  padding: 0.3em 0.6em;
-  font-size: 0.85em;
-}
-
-/* ————— Sección Stripe y PayPal ————— */
-.stripe-section,
-.paypal-section {
-  margin: 1.5rem 0;             /* espacio arriba y abajo */
-  padding: 0.5rem;              /* algo de acolchado */
-}
-
-/* Detalles desplegables (common a Stripe y PayPal) */
-details {
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  overflow: hidden;
-  margin-bottom: 1rem;
-}
-details summary {
-  background: #f7f7f7;
-  padding: 0.75rem 1rem;
-  font-weight: bold;
-  cursor: pointer;
-}
-details[open] summary {
-  background: #eaeaea;
-}
-
-/* Listado de pagos */
-.stripe-payments li,
-.paypal-payments li {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0.75rem 1rem;
-  border-bottom: 1px solid #eee;
-}
-.stripe-payments li:last-child,
-.paypal-payments li:last-child {
-  border-bottom: none;
-}
-
-/* Botones de reembolso agrupados */
-.refund-buttons {
-  margin-top: 0.5rem;
-  display: flex;
-  gap: 0.5rem;
-}
-
-/* Formulario inline */
-.refund-buttons form {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-}
-.refund-buttons input[type="number"] {
-  width: 4rem;
-  padding: 0.25rem;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-}
-
-/* Estado de ítem reembolsado/fallido */
+/* Badges genéricos (Stripe y PayPal) */
 .badge {
   font-size: 0.85rem;
   padding: 0.25rem 0.5rem;
   border-radius: 12px;
   color: white;
+  font-weight: bold;
 }
 .badge.success { background: #28a745; }
 .badge.failed  { background: #dc3545; }
-
-/* Colores de botones (mismo estilo que Stripe) */
-button {
-  padding: 0.5rem 1rem;
-  border: none;
+/* Botones de reembolso */
+.refund-buttons {
+  display: flex; gap: .5em; margin-top: .5rem;
+}
+.refund-buttons button {
+  flex: 1; font-size: .9em; padding: .5em .8em;
+  border: none; border-radius: 4px;
+  transition: opacity .2s;
+}
+.refund-buttons button:first-child { background: #16a085; }
+.refund-buttons button:last-child  { background: #f39c12; }
+.refund-buttons button:hover      { opacity: 0.9; }
+/* Formulario inline parcial */
+.partial-refund-form {
+  display: none; margin-top: .5em; gap: .5em;
+  align-items: center;
+}
+.partial-refund-form input {
+  width: 6em; padding: .3em; border: 1px solid #ccc;
   border-radius: 4px;
-  font-size: 0.9rem;
-  cursor: pointer;
 }
-button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-button[innerText="Reembolso completo"],
-button.full-refund {
-  background: #218838;   /* verde */
-  color: white;
-}
-button[innerText="Reembolso parcial"],
-button.partial-refund {
-  background: #007bff;   /* azul */
-  color: white;
-}
-button.cancel {
-  background: #ffc107;   /* amarillo */
-  color: #333;
+.partial-refund-form button {
+  padding: .3em .6em; font-size: .85em;
 }
 
-/* Separación extra al final de cada panel */
-.panel {
-  margin-bottom: 2rem;
+/* — PayPal: override de badges para mostrar el texto completo — */
+.paypal-container .badge,
+.paypal-payments .badge {
+  display: inline-block;
+  width: auto !important;
+  height: auto !important;
+  border-radius: .25rem !important;
+  padding: .2em .4em !important;
+  white-space: nowrap !important;
+  text-transform: uppercase;
 }
-
+/* Color de estado PayPal (badge-info) */
+.badge-info {
+  background-color: #17a2b8 !important;
+}

@@ -20,18 +20,27 @@ function createApi({ woocommerce_url, consumer_key, consumer_secret }) {
 /**
  * Obtiene pedidos y filtra manualmente por correo del cliente,
  * asegurando que los metadatos (meta_data) estén presentes.
+ * Paginación limitada a 5 páginas (hasta 500 pedidos).
  */
 async function obtenerPedidosPorEmail(config, email) {
   const api = createApi(config);
+  const maxPages = 5;
+  let allOrders = [];
 
-  // WooCommerce no filtra bien por billing.email → cargamos 100 y filtramos nosotros
-  const res = await api.get('orders', { per_page: 100 });
-  let pedidos = Array.isArray(res.data) ? res.data : [];
+  for (let page = 1; page <= maxPages; page++) {
+    const { data } = await api.get('orders', {
+      per_page: 100,
+      page,
+      status: 'any'
+    });
+    if (!data.length) break;
+    allOrders.push(...data);
+  }
 
-  // Filtra por el campo billing.email
-  pedidos = pedidos.filter(p => p.billing && p.billing.email === email);
-
-  return pedidos; // pedidos completos (con meta_data, billing, shipping, etc.)
+  // Filtra por el campo billing.email (case-insensitive)
+  return allOrders.filter(
+    o => o.billing?.email?.toLowerCase() === email.toLowerCase()
+  );
 }
 
 /**
@@ -93,7 +102,10 @@ async function fetchCountryStates(config, countryCode = 'ES') {
  */
 async function fetchOrders(config) {
   const api = createApi(config);
-  const res = await api.get('orders', { per_page: 100 });
+  const res = await api.get('orders', {
+    per_page: 100,
+    status: 'any'
+  });
   return res.data;
 }
 
@@ -123,7 +135,7 @@ async function addLineItemToOrder(config, orderId, lineItems) {
   const res = await api.post(`orders/${orderId}/line_items/batch`, {
     create: lineItems.map(item => ({
       product_id: Number(item.product_id),
-      quantity: Number(item.quantity),
+      quantity:   Number(item.quantity),
       ...(item.variation_id ? { variation_id: Number(item.variation_id) } : {})
     }))
   });
