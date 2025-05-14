@@ -22,7 +22,6 @@ const refundStripeRoutes         = require('./routes/refund-stripe');
 const getPayPalTransactionsRoutes= require('./routes/get-paypal-transactions');
 const refundPayPalRoutes         = require('./routes/refund-paypal');
 const bbvaRoutes                 = require('./routes/bbva-transfer');
-const callbellRoutes             = require('./routes/callbell');
 
 const app = express();
 
@@ -47,8 +46,6 @@ app.use('/api/refund-stripe', refundStripeRoutes);
 app.use('/api/get-paypal-transactions', getPayPalTransactionsRoutes);
 app.use('/api/refund-paypal', refundPayPalRoutes);
 app.use('/api/bbva-transfer', bbvaRoutes);
-app.use('/api/callbell', callbellRoutes);
-
 // Servir frontend estático (si lo necesitas)
 app.use(express.static(path.join(__dirname, '../frontend')));
 
