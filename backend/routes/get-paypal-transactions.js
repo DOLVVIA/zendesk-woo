@@ -60,7 +60,7 @@ router.get('/', async (req, res) => {
   }
 
   // 5) Paginación en Reporting API (últimos 90 días)
-  const since   = new Date(Date.now() - 90*24*60*60*1000).toISOString();
+  const since = new Date(Date.now() - 3*24*60*60*1000).toISOString();
   const until   = new Date().toISOString();
   const pageSize = 50;
   let page = 1;
