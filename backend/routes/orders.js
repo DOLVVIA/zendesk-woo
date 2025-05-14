@@ -12,8 +12,7 @@ const router = express.Router();
  *   - consumer_key
  *   - consumer_secret
  *
- * Devuelve todos los pedidos (status = 'any') y luego filtra
- * por billing.email === email
+ * Paginación hasta 5 páginas, status = 'any', luego filtra por billing.email
  */
 router.get('/', async (req, res) => {
   // 1) Validar cabecera Zendesk
@@ -36,30 +35,37 @@ router.get('/', async (req, res) => {
   try {
     // 3) Inicializar el cliente de WooCommerce con credenciales dinámicas
     const wcApi = new WooCommerceRestApi({
-      url:         woocommerce_url,
-      consumerKey: consumer_key,
+      url:          woocommerce_url,
+      consumerKey:  consumer_key,
       consumerSecret: consumer_secret,
-      version:     'wc/v3'
+      version:      'wc/v3',
+      queryStringAuth: true
     });
 
-    // 4) Pedir TODOS los pedidos (status = 'any') hasta 100
-    const { data: allOrders } = await wcApi.get('orders', {
-      per_page: 100,
-      status:   'any'
-    });
+    // 4) Paginación: cargar hasta 5 páginas de 100 pedidos cada una
+    const maxPages = 5;
+    let allOrders = [];
+
+    for (let page = 1; page <= maxPages; page++) {
+      const { data } = await wcApi.get('orders', {
+        per_page: 100,
+        page,
+        status:   'any'
+      });
+      if (!data.length) break;
+      allOrders.push(...data);
+    }
 
     // 5) Filtrar por correo de facturación (case-insensitive)
     const pedidos = allOrders.filter(o =>
-      o.billing &&
-      o.billing.email &&
-      o.billing.email.toLowerCase() === email.toLowerCase()
+      o.billing?.email?.toLowerCase() === email.toLowerCase()
     );
 
     // 6) Responder con el listado completo
-    res.json({ email, pedidos });
+    return res.json({ email, pedidos });
   } catch (err) {
     console.error('Error al obtener pedidos por email:', err.response?.data || err.message);
-    res.status(500).json({ error: 'Error al obtener los pedidos.' });
+    return res.status(500).json({ error: 'Error al obtener los pedidos.' });
   }
 });
 
