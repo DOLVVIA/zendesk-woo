@@ -438,6 +438,185 @@ async function renderPayPalTransactions(txs, container, panel) {
 
   async function loadPedidos() {
     const { 'ticket.requester.email': email } = await client.get('ticket.requester.email');
+   // === INICIO BLOQUE: BUSCADOR MANUAL DE PEDIDOS ===
+// Este bloque añade un formulario para buscar pedidos por ID, email o nombre.
+// Usa las mismas claves y funciones que el resto de tu app.
+
+const appContainer = document.getElementById('app');
+const buscadorDiv = document.createElement('div');
+buscadorDiv.innerHTML = `
+  <div class="mb-3 p-3 bg-light border rounded">
+    <h5>Buscar pedido manualmente</h5>
+    <input type="text" class="form-control mb-2" id="buscar-id" placeholder="ID de pedido">
+    <input type="text" class="form-control mb-2" id="buscar-email" placeholder="Email">
+    <input type="text" class="form-control mb-2" id="buscar-nombre" placeholder="Nombre">
+    <button class="btn btn-primary" id="btn-buscar-pedido">Buscar</button>
+  </div>
+  <div id="resultados-busqueda" class="mt-3"></div>
+`;
+appContainer.prepend(buscadorDiv);
+ajustarAlto();
+
+// Escuchar clic en el botón de buscar
+document.getElementById('btn-buscar-pedido').addEventListener('click', async () => {
+  const id = document.getElementById('buscar-id').value.trim();
+  const email = document.getElementById('buscar-email').value.trim();
+  const nombre = document.getElementById('buscar-nombre').value.trim();
+
+  // Usamos la función oficial de tu app para obtener las credenciales
+  const { woocommerce_url, consumer_key, consumer_secret } = getWooConfig();
+
+  const params = new URLSearchParams({
+    woocommerce_url,
+    consumer_key,
+    consumer_secret
+  });
+
+  if (id) params.append('id', id);
+  if (email) params.append('email', email);
+  if (nombre) params.append('nombre', nombre);
+
+const res = await fetch(`${API_BASE}/buscar-pedido-avanzado?${params.toString()}`, {
+  headers: getHeaders()
+});
+
+
+  const data = await res.json();
+  const contenedor = document.getElementById('resultados-busqueda');
+  contenedor.innerHTML = '';
+
+  if (!data.pedidos || data.pedidos.length === 0) {
+    contenedor.innerHTML = '<p>No se encontraron pedidos.</p>';
+    return;
+  }
+
+
+  // === INICIO BLOQUE: Función mostrarPedido() ===
+// Esta función renderiza un pedido manualmente igual que en el flujo por email.
+async function mostrarPedido(pedido) {
+  const resultados = document.getElementById('resultados');
+  resultados.innerHTML = '';
+
+  await loadCities();
+  await loadProvincias();
+
+  const acc = document.createElement('button');
+  acc.className = 'accordion active';
+  acc.innerText = `Pedido #${pedido.id} – ${pedido.total} € – ${pedido.status}`;
+
+  const panel = document.createElement('div');
+  panel.className = 'panel';
+  panel.style.display = 'block';
+  panel.dataset.billing  = JSON.stringify(pedido.billing  || {});
+  panel.dataset.shipping = JSON.stringify(pedido.shipping || {});
+
+  const b = pedido.billing || {};
+  panel.innerHTML = `
+    <p><strong>Cliente:</strong> ${b.first_name||''} ${b.last_name||''}</p>
+    <p><strong>Email:</strong> ${b.email||''}</p>
+    <p><strong>Teléfono:</strong> ${b.phone||''}</p>
+    <p><strong>Dirección facturación:</strong>
+      ${b.address_1||''} ${b.address_2||''}, ${b.postcode||''} ${b.city||''}, ${b.country||''}
+    </p>
+    <hr>
+  `;
+
+  pedido.line_items.forEach((item, idx) => {
+    panel.innerHTML += `
+      <div class="producto">
+        ${item.image?.src ? `<img src="${item.image.src}" class="producto-img">` : ''}
+        <strong>${item.name}</strong><br>
+        (x${item.quantity})<br>
+        SKU: ${item.sku||'Sin SKU'}<br>
+        Variación: ${item.variation_id||'N/A'}<br>
+        Precio: ${item.total} €
+      </div>
+    `;
+    const btnEdit = document.createElement('button');
+    btnEdit.className = 'btn-edit-item';
+    btnEdit.dataset.orderId     = pedido.id;
+    btnEdit.dataset.index       = idx;
+    btnEdit.dataset.productId   = item.product_id;
+    btnEdit.dataset.variationId = item.variation_id||'';
+    btnEdit.dataset.quantity    = item.quantity;
+    btnEdit.dataset.total       = item.total;
+    btnEdit.innerText = 'Editar talla/cantidad';
+    panel.appendChild(btnEdit);
+
+    const btnDel = document.createElement('button');
+    btnDel.className = 'btn-delete-item';
+    btnDel.dataset.orderId = pedido.id;
+    btnDel.dataset.index   = idx;
+    btnDel.innerText = 'Eliminar artículo';
+    panel.appendChild(btnDel);
+  });
+
+  const btnAdd = document.createElement('button');
+  btnAdd.className = 'btn-add-item';
+  btnAdd.dataset.orderId = pedido.id;
+  btnAdd.innerText = 'Añadir artículo';
+  panel.appendChild(btnAdd);
+
+  const btnStatus = document.createElement('button');
+  btnStatus.className = 'btn-change-status';
+  btnStatus.dataset.orderId = pedido.id;
+  btnStatus.dataset.status  = pedido.status;
+  btnStatus.innerText = 'Cambiar estado';
+  panel.appendChild(btnStatus);
+
+  const btnEditAddr = document.createElement('button');
+  btnEditAddr.className = 'btn-edit-address';
+  btnEditAddr.dataset.orderId = pedido.id;
+  btnEditAddr.innerText = 'Editar Dirección';
+  panel.appendChild(btnEditAddr);
+
+  {
+    const stripeContainer = document.createElement('div');
+    stripeContainer.className = 'stripe-container mt-2 mb-3';
+    const charges = b.email ? await loadStripeCharges(b.email) : [];
+    renderStripeCharges(charges, stripeContainer, panel);
+    panel.appendChild(stripeContainer);
+  }
+
+  {
+    const paypalContainer = document.createElement('div');
+    paypalContainer.className = 'paypal-container mt-2 mb-3';
+    const txs = b.email ? await loadPayPalTransactions(b.email) : [];
+    renderPayPalTransactions(txs, paypalContainer, panel);
+    panel.appendChild(paypalContainer);
+  }
+
+  resultados.appendChild(acc);
+  resultados.appendChild(panel);
+  ajustarAlto();
+}
+// === FIN BLOQUE: Función mostrarPedido() ===
+
+
+data.pedidos.forEach(pedido => {
+  const div = document.createElement('div');
+  div.innerHTML = `
+    <div class="border p-2 mb-2">
+      <strong>ID:</strong> ${pedido.id}<br>
+      <strong>Email:</strong> ${pedido.billing?.email}<br>
+      <strong>Nombre:</strong> ${pedido.billing?.first_name} ${pedido.billing?.last_name}<br>
+    </div>
+  `;
+
+  const btn = document.createElement('button');
+  btn.innerText = 'Ver pedido';
+  btn.className = 'btn btn-sm btn-outline-primary mt-1';
+  btn.addEventListener('click', () => mostrarPedido(pedido));
+  div.querySelector('.border').appendChild(btn);
+
+  contenedor.appendChild(div);
+});
+
+  ajustarAlto(); // actualiza el iframe por si se expandió
+});
+
+// === FIN BLOQUE: BUSCADOR MANUAL DE PEDIDOS ===
+
     if (!email) return;
     const resultados = document.getElementById('resultados');
     resultados.innerHTML = '';
@@ -1369,3 +1548,4 @@ if (e.target.matches('.btn-add-item')) {
   await loadProvincias();
   await loadPedidos();
 });
+

@@ -11,8 +11,6 @@ const router = express.Router();
  *   - woocommerce_url
  *   - consumer_key
  *   - consumer_secret
- *
- * Paginación hasta 5 páginas, status = 'any', luego filtra por billing.email
  */
 router.get('/', async (req, res) => {
   // 1) Validar cabecera Zendesk
@@ -33,39 +31,31 @@ router.get('/', async (req, res) => {
   }
 
   try {
-    // 3) Inicializar el cliente de WooCommerce con credenciales dinámicas
+    // 3) Inicializar cliente WooCommerce
     const wcApi = new WooCommerceRestApi({
-      url:          woocommerce_url,
-      consumerKey:  consumer_key,
+      url: woocommerce_url,
+      consumerKey: consumer_key,
       consumerSecret: consumer_secret,
-      version:      'wc/v3',
+      version: 'wc/v3',
       queryStringAuth: true
     });
 
-    // 4) Paginación: cargar hasta 5 páginas de 100 pedidos cada una
-    const maxPages = 5;
-    let allOrders = [];
+    // 4) Búsqueda rápida por email con parámetro ?search
+    const { data: pedidos } = await wcApi.get('orders', {
+      search: email,
+      status: 'any',
+      per_page: 10
+    });
 
-    for (let page = 1; page <= maxPages; page++) {
-      const { data } = await wcApi.get('orders', {
-        per_page: 100,
-        page,
-        status:   'any'
-      });
-      if (!data.length) break;
-      allOrders.push(...data);
-    }
-
-    // 5) Filtrar por correo de facturación (case-insensitive)
-    const pedidos = allOrders.filter(o =>
-      o.billing?.email?.toLowerCase() === email.toLowerCase()
+    // 5) Filtrado adicional por billing.email exacto
+    const filtrados = pedidos.filter(p =>
+      p.billing?.email?.toLowerCase() === email.toLowerCase()
     );
 
-    // 6) Responder con el listado completo
-    return res.json({ email, pedidos });
+    return res.json({ pedidos: filtrados });
   } catch (err) {
-    console.error('Error al obtener pedidos por email:', err.response?.data || err.message);
-    return res.status(500).json({ error: 'Error al obtener los pedidos.' });
+    console.error('❌ Error buscar-pedidos:', err.response?.data || err.message);
+    return res.status(500).json({ error: 'Error al obtener pedidos desde WooCommerce.' });
   }
 });
 
