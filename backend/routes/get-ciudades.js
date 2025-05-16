@@ -1,6 +1,11 @@
 const express = require('express');
+const NodeCache = require('node-cache');
 const router = express.Router();
 const { fetchOrders } = require('../utils/woocommerce');
+
+// Caché de 10 horas (36000 segundos)
+const cache = require('../cache');
+
 
 router.get('/', async (req, res) => {
   const incomingSecret = req.get('x-zendesk-secret');
@@ -16,13 +21,21 @@ router.get('/', async (req, res) => {
     });
   }
 
+  const cacheKey = `${woocommerce_url}_ciudades`;
+
   try {
+    const cached = cache.get(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
+
     const orders = await fetchOrders({ woocommerce_url, consumer_key, consumer_secret });
 
     const cities = Array.from(
       new Set(orders.map(order => order.billing?.city).filter(Boolean))
     ).sort();
 
+    cache.set(cacheKey, cities);
     res.json(cities);
   } catch (err) {
     console.error('Error al obtener ciudades:', err.response?.data || err.message);

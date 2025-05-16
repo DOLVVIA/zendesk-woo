@@ -1,6 +1,11 @@
 const express = require('express');
+const NodeCache = require('node-cache');
 const router = express.Router();
 const { fetchOrderStatuses } = require('../utils/woocommerce');
+
+// Caché de 10 horas (36000 segundos)
+const cache = require('../cache');
+
 
 router.get('/', async (req, res) => {
   const incomingSecret = req.get('x-zendesk-secret');
@@ -16,8 +21,17 @@ router.get('/', async (req, res) => {
     });
   }
 
+  const cacheKey = `${woocommerce_url}_estados`;
+
   try {
+    const cached = cache.get(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
+
     const statuses = await fetchOrderStatuses({ woocommerce_url, consumer_key, consumer_secret });
+
+    cache.set(cacheKey, statuses);
     res.json(statuses);
   } catch (err) {
     console.error('Error al obtener estados de pedido:', err.response?.data || err.message);

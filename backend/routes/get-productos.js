@@ -1,6 +1,11 @@
 const express = require('express');
+const NodeCache = require('node-cache');
 const router = express.Router();
 const { fetchProducts } = require('../utils/woocommerce');
+
+// Caché de 10 horas (36000 segundos)
+const cache = require('../cache');
+
 
 router.get('/', async (req, res) => {
   const incomingSecret = req.get('x-zendesk-secret');
@@ -16,7 +21,14 @@ router.get('/', async (req, res) => {
     });
   }
 
+  const cacheKey = `${woocommerce_url}_productos`;
+
   try {
+    const cached = cache.get(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
+
     const productsData = await fetchProducts({ woocommerce_url, consumer_key, consumer_secret });
 
     const products = productsData.map(p => ({
@@ -24,6 +36,7 @@ router.get('/', async (req, res) => {
       name: p.name
     }));
 
+    cache.set(cacheKey, products);
     res.json(products);
   } catch (err) {
     console.error('Error al cargar productos:', err.response?.data || err.message);

@@ -443,6 +443,31 @@ async function renderPayPalTransactions(txs, container, panel) {
 // Usa las mismas claves y funciones que el resto de tu app.
 
 const appContainer = document.getElementById('app');
+// === INICIO BLOQUE: BOTÓN LIMPIAR CACHÉ ===
+// Este botón fuerza al backend a eliminar la caché de productos, ciudades, provincias, etc.
+
+const btnResetCache = document.createElement('button');
+btnResetCache.innerText = '🔄 Refrescar datos (limpiar caché)';
+btnResetCache.className = 'btn btn-danger mb-3';
+btnResetCache.style.marginBottom = '1rem';
+btnResetCache.addEventListener('click', async () => {
+  try {
+    const res = await fetch(`${API_BASE}/limpiar-cache`, {
+      method: 'POST',
+      headers: getHeaders()
+    });
+    const json = await res.json();
+    alert(json.message || 'Caché limpiada correctamente.');
+  } catch (err) {
+    alert('Error al limpiar la caché.');
+    console.error('❌ limpiar-cache:', err);
+  }
+});
+
+appContainer.prepend(btnResetCache);
+
+// === FIN BLOQUE: BOTÓN LIMPIAR CACHÉ ===
+
 const buscadorDiv = document.createElement('div');
 buscadorDiv.innerHTML = `
   <div class="mb-3 p-3 bg-light border rounded">

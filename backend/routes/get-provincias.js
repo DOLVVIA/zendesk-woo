@@ -1,6 +1,11 @@
 const express = require('express');
+const NodeCache = require('node-cache');
 const router = express.Router();
 const { fetchCountryStates } = require('../utils/woocommerce');
+
+// Caché de 10 horas (36000 segundos)
+const cache = require('../cache');
+
 
 router.get('/', async (req, res) => {
   const incomingSecret = req.get('x-zendesk-secret');
@@ -22,15 +27,25 @@ router.get('/', async (req, res) => {
   }
 
   const countryCode = String(country).toUpperCase();
+  const cacheKey = `${woocommerce_url}_provincias_${countryCode}`;
 
   try {
-    const states = await fetchCountryStates({ woocommerce_url, consumer_key, consumer_secret }, countryCode);
+    const cached = cache.get(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
+
+    const states = await fetchCountryStates(
+      { woocommerce_url, consumer_key, consumer_secret },
+      countryCode
+    );
 
     const provinces = (states || [])
       .map(s => s.name)
       .filter(Boolean)
       .sort();
 
+    cache.set(cacheKey, provinces);
     res.json(provinces);
   } catch (err) {
     console.error('Error al obtener provincias:', err.response?.data || err.message);
