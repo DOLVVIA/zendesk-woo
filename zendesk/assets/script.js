@@ -308,86 +308,133 @@ client.on('app.registered', async () => {
     container.appendChild(details);
   }
 
-  // Renderiza las transacciones de PayPal, con botón de reembolso completo
-  function renderPayPalTransactions(txs, container, panel) {
-    container.innerHTML = '';
-    if (!txs.length) {
-      const noData = document.createElement('p');
-      noData.innerText = 'No hay transacciones PayPal para este cliente.';
-      noData.className = 'mb-2';
-      container.appendChild(noData);
-      return;
-    }
-    const details = document.createElement('details');
-    details.className = 'paypal-payments mt-2 mb-3';
-    const summary = document.createElement('summary');
-    summary.className = 'font-weight-bold';
-    summary.innerText = `Transacciones PayPal (${txs.length})`;
-    details.appendChild(summary);
+  // Reemplaza toda la definición de renderPayPalTransactions por esto:
+async function renderPayPalTransactions(txs, container, panel) {
+  container.innerHTML = '';
 
-    const ul = document.createElement('ul');
-    ul.className = 'list-unstyled w-100';
+  // contenedor <details> principal
+  const details = document.createElement('details');
+  details.className = 'paypal-payments mt-2 mb-3';
 
-    txs.forEach(tx => {
-      const amount = `${tx.amount.value} ${tx.amount.currency_code}`;
-      const li     = document.createElement('li');
-      li.className = 'mb-3';
+  const summary = document.createElement('summary');
+  summary.className = 'font-weight-bold';
+  summary.innerText = `Transacciones PayPal (${txs.length})`;
+  details.appendChild(summary);
 
-      li.innerHTML = `
-        <div class="d-flex justify-content-between align-items-center mb-1">
-          <div>ID: ${tx.id} — ${amount}</div>
-          <div><span class="badge badge-info">${tx.status}</span></div>
-        </div>
-        <div>Fecha: ${new Date(tx.date).toLocaleString()}</div>
-      `;
+  if (!txs.length) {
+    const noData = document.createElement('p');
+    noData.innerText = 'No hay transacciones PayPal para este cliente.';
+    noData.className = 'mb-2';
+    details.appendChild(noData);
+    container.appendChild(details);
+    return;
+  }
 
-      const btn = document.createElement('button');
-      btn.type      = 'button';
-      btn.innerText = 'Reembolso completo';
-      btn.className = 'btn btn-danger btn-block mt-2';
-      btn.disabled  = tx.status !== 'COMPLETED';
-      btn.addEventListener('click', () => refundPayPal(tx.id, panel));
+  const ul = document.createElement('ul');
+  ul.className = 'list-unstyled w-100';
 
-      li.appendChild(btn);
-      ul.appendChild(li);
+  txs.forEach(tx => {
+    // normaliza "S" como completado
+    const isFull = tx.status === 'COMPLETED' || tx.status === 'S';
+    const badgeClass = isFull
+      ? 'success'
+      : (tx.status === 'PENDING' ? 'warning' : 'danger');
+    const statusTxt = isFull
+      ? 'Completado'
+      : (tx.status === 'PENDING' ? 'Pendiente' : 'Fallido');
+
+    const li = document.createElement('li');
+    li.className = 'mb-4 w-100';
+
+    // información + badge
+    li.innerHTML = `
+      <div class="d-flex justify-content-between align-items-center mb-1">
+        <div>ID: ${tx.id} — ${parseFloat(tx.amount.value).toFixed(2)} ${tx.amount.currency_code}</div>
+        <div><span class="badge badge-${badgeClass}">${statusTxt}</span></div>
+      </div>
+      <div>Fecha: ${new Date(tx.date).toLocaleString()}</div>
+    `;
+
+    // botón reembolso completo
+    const btnFull = document.createElement('button');
+    btnFull.type      = 'button';
+    btnFull.innerText = 'Reembolso completo';
+    btnFull.className = 'btn btn-danger btn-block mt-2';
+    btnFull.disabled  = !isFull;
+    btnFull.addEventListener('click', () => 
+      refundPayPal(tx.id, panel, tx.amount.currency_code)
+    );
+    li.appendChild(btnFull);
+
+    // botón reembolso parcial
+    const btnPartial = document.createElement('button');
+    btnPartial.type      = 'button';
+    btnPartial.innerText = 'Reembolso parcial';
+    btnPartial.className = 'btn btn-warning btn-block mt-2';
+    btnPartial.disabled  = !isFull;
+    li.appendChild(btnPartial);
+
+    // formulario reembolso parcial (oculto inicialmente)
+    const formPartial = document.createElement('form');
+    formPartial.className    = 'mt-2 mb-3 w-100';
+    formPartial.style.display = 'none';
+
+    // input importe parcial
+    const input = document.createElement('input');
+    input.type        = 'number';
+    input.name        = 'partial';
+    input.step        = '0.01';
+    input.min         = '0.01';
+    input.max         = parseFloat(tx.amount.value).toFixed(2);
+    input.placeholder = `Ej: hasta ${parseFloat(tx.amount.value).toFixed(2)}`;
+    input.required    = true;
+    input.className   = 'form-control mb-2';
+    formPartial.appendChild(input);
+
+    // btn ✓ Aceptar
+    const acceptBtn = document.createElement('button');
+    acceptBtn.type      = 'submit';
+    acceptBtn.innerText = '✓ Aceptar';
+    acceptBtn.className = 'btn btn-success btn-block mb-2';
+    formPartial.appendChild(acceptBtn);
+
+    // btn ✖ Cancelar
+    const cancelBtn = document.createElement('button');
+    cancelBtn.type      = 'button';
+    cancelBtn.innerText = '✖ Cancelar';
+    cancelBtn.className = 'btn btn-danger btn-block';
+    formPartial.appendChild(cancelBtn);
+
+    li.appendChild(formPartial);
+
+    // mostrar/ocultar formulario parcial
+    btnPartial.addEventListener('click', () => {
+      formPartial.style.display = 'block';
+      btnPartial.style.display  = 'none';
+    });
+    cancelBtn.addEventListener('click', () => {
+      formPartial.style.display = 'none';
+      btnPartial.style.display  = 'block';
+      input.value               = '';
     });
 
-    details.appendChild(ul);
-    container.appendChild(details);
-  }
-  // fin paypal //
-
-  // Realiza el reembolso en PayPal (completo o parcial)
-  async function refundPayPal(transactionId, panel, currency = 'EUR', amount = null) {
-    try {
-      const { paypal_client_id, paypal_secret, paypal_mode } = getPayPalConfig();
-      const payload = {
-        transactionId,
-        paypal_client_id,
-        paypal_secret,
-        paypal_mode,
-        ...(amount ? { amount, currency } : {})
-      };
-      const res = await fetch(`${API_BASE}/refund-paypal`, {
-        method: 'POST',
-        headers: {
-          ...getHeaders(),
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(payload)
-      });
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text);
+    // envío parcial
+    formPartial.addEventListener('submit', async ev => {
+      ev.preventDefault();
+      const val = parseFloat(input.value.replace(',', '.'));
+      if (isNaN(val) || val <= 0 || val > parseFloat(tx.amount.value)) {
+        return alert(`Importe inválido (0 < importe ≤ ${tx.amount.value})`);
       }
-      const json = await res.json();
-      showMessage(panel, `✅ Reembolso OK: ${json.id || json.status || 'finalizado'}`);
-      await loadPedidos();
-    } catch (e) {
-      console.error('❌ refundPayPal:', e);
-      showMessage(panel, 'Error reembolso PayPal', 'error');
-    }
-  }
+      const amount = val.toFixed(2);
+      await refundPayPal(tx.id, panel, tx.amount.currency_code, amount);
+    });
+
+    ul.appendChild(li);
+  });
+
+  details.appendChild(ul);
+  container.appendChild(details);
+}
 
   async function loadPedidos() {
     const { 'ticket.requester.email': email } = await client.get('ticket.requester.email');
