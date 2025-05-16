@@ -27,40 +27,41 @@ router.get('/', async (req, res) => {
   });
 
   try {
-    let pedidos = [];
+    let resultado = [];
 
-    // Descargar hasta 5 páginas de pedidos
-    for (let page = 1; page <= 5; page++) {
-      const { data } = await api.get('orders', {
-        per_page: 100,
-        page,
-        status: 'any'
+    // 1️⃣ Si se busca por ID exacto
+    if (id && !email && !nombre) {
+      try {
+        const { data } = await api.get(`orders/${id}`);
+        resultado = [data]; // lo metemos en un array para mantener el formato
+      } catch (err) {
+        if (err.response?.status === 404) {
+          return res.json({ pedidos: [] }); // no encontrado
+        }
+        throw err;
+      }
+    }
+
+    // 2️⃣ Si se busca por email o nombre
+    else if (email || nombre) {
+      const searchQuery = email || nombre;
+      const { data: pedidos } = await api.get('orders', {
+        search: searchQuery,
+        status: 'any',
+        per_page: 10
       });
-      if (!data.length) break;
-      pedidos.push(...data);
-    }
 
-    // Filtrar por ID, email o nombre completo
-    let resultado = pedidos;
-
-    if (id) {
-      resultado = resultado.filter(p => p.id.toString() === id.toString());
-    }
-
-    if (email) {
-      resultado = resultado.filter(p => p.billing?.email?.toLowerCase() === email.toLowerCase());
-    }
-
-    if (nombre) {
-      const nombreLower = nombre.toLowerCase();
-      resultado = resultado.filter(p =>
-        `${p.billing?.first_name} ${p.billing?.last_name}`.toLowerCase().includes(nombreLower)
-      );
+      resultado = pedidos.filter(p => {
+        const billing = p.billing || {};
+        const matchesEmail = email && billing.email?.toLowerCase() === email.toLowerCase();
+        const matchesNombre = nombre && `${billing.first_name} ${billing.last_name}`.toLowerCase().includes(nombre.toLowerCase());
+        return matchesEmail || matchesNombre;
+      });
     }
 
     return res.json({ pedidos: resultado });
   } catch (error) {
-    console.error('Error al buscar pedidos:', error.message);
+    console.error('❌ Error buscar-pedido-avanzado:', error.response?.data || error.message);
     return res.status(500).json({ error: 'Error interno al buscar pedidos.' });
   }
 });
