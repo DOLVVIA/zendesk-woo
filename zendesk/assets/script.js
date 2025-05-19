@@ -328,6 +328,54 @@ function renderStripeCharges(charges, container, panel) {
 
 
   //iniciio reembolso paypal 
+async function refundPayPal(transactionId, panel, currency, amount = null) {
+  try {
+    const payload = { transactionId, currency };
+    if (amount) payload.amount = parseFloat(amount).toFixed(2);
+
+    const res = await fetch(`${API_BASE}/refund-paypal`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(payload)
+    });
+
+    if (!res.ok) {
+      let errMsg;
+      try { errMsg = (await res.json()).error; }
+      catch { errMsg = await res.text(); }
+      console.error('❌ /refund-paypal error:', res.status, errMsg);
+      showMessage(panel, `Error PayPal: ${errMsg}`, 'error');
+      return;
+    }
+
+    const { success, refund, error } = await res.json();
+    if (!success) {
+      showMessage(panel, `❌ Error PayPal: ${error}`, 'error');
+      return;
+    }
+
+    showMessage(panel, `✅ Reembolso PayPal OK (ID: ${refund.id})`);
+
+    const acc = panel.previousElementSibling;
+    if (acc && acc.classList.contains('accordion')) {
+      acc.click();
+      panel.style.display = 'none';
+      acc.classList.remove('active');
+      ajustarAlto();
+    }
+
+    const billing = JSON.parse(panel.dataset.billing);
+    const txs = await loadPayPalTransactions(billing.email);
+    const container = panel.querySelector('.paypal-container');
+    renderPayPalTransactions(txs, container, panel);
+
+  } catch (e) {
+    console.error('🛑 Exception en refundPayPal:', e);
+    showMessage(panel, `Error inesperado: ${e.message}`, 'error');
+  }
+}
+
+//fub de todo 
 
 
 
@@ -385,8 +433,9 @@ async function renderPayPalTransactions(txs, container, panel) {
     btnFull.className = 'btn btn-danger btn-block mt-2';
     btnFull.disabled  = !isFull;
     btnFull.addEventListener('click', () => 
-      refundPayPal(tx.id, panel, tx.amount.currency_code)
-    );
+    refundPayPal(tx.id, panel, tx.amount.currency_code, tx.amount.value)
+   );
+
     li.appendChild(btnFull);
 
     // botón reembolso parcial

@@ -6,7 +6,8 @@ const router  = express.Router();
 function createPayPalClient() {
   const clientId     = process.env.PAYPAL_CLIENT_ID;
   const clientSecret = process.env.PAYPAL_SECRET;
-  const mode         = (process.env.PAYPAL_MODE||'sandbox').toLowerCase();
+  const mode = 'live'; // FORZADO A PRODUCCIÓN para probar
+  //const mode         = (process.env.PAYPAL_MODE||'sandbox').toLowerCase();
 
   const env = mode === 'live'
     ? new paypal.core.LiveEnvironment(clientId, clientSecret)
