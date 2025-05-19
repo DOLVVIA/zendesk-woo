@@ -5,74 +5,85 @@ const WooCommerceRestApi = require('@woocommerce/woocommerce-rest-api').default;
 
 const router = express.Router();
 
+// POST /api/refund-stripe
+// Body JSON (admite claves antiguas y nuevas):
+// {
+//   orderId, chargeId, amount,                  // amount en céntimos
+//   stripe_secret_key  o secret_key,
+//   woocommerce_url,
+//   woocommerce_consumer_key o consumer_key,
+//   woocommerce_consumer_secret o consumer_secret
+// }
 router.post('/', async (req, res) => {
-  // 1️⃣ Validar x-zendesk-secret
+  // 1) Validar cabecera
   const incoming = req.get('x-zendesk-secret');
   if (!incoming || incoming !== process.env.ZENDESK_SHARED_SECRET) {
-    return res.status(401).json({ error: 'Unauthorized: x-zendesk-secret inválido' });
+    return res.status(401).json({ error: 'x-zendesk-secret inválido' });
   }
 
-  // 2️⃣ Mapear nombres antiguos/nuevos
+  // 2) Leer campos (viejos y nuevos)
   const {
+    // Stripe
     stripe_secret_key: stripeKeyNew, secret_key,
+    // WooCommerce
     woocommerce_consumer_key: wooKeyNew, consumer_key,
     woocommerce_consumer_secret: wooSecretNew, consumer_secret,
+    // Obligatorios
     orderId, chargeId, amount, woocommerce_url
   } = req.body;
 
-  const stripe_secret_key           = stripeKeyNew || secret_key;
-  const woocommerce_consumer_key    = wooKeyNew  || consumer_key;
+  const stripe_secret_key = stripeKeyNew || secret_key;
+  const woocommerce_consumer_key    = wooKeyNew || consumer_key;
   const woocommerce_consumer_secret = wooSecretNew || consumer_secret;
 
-  // 3️⃣ Validaciones
+  // 3) Validaciones
   if (!orderId || !chargeId || amount == null) {
-    return res.status(400).json({ error: 'Falta orderId, chargeId o amount en el body.' });
+    return res.status(400).json({ error: 'Falta orderId, chargeId o amount.' });
   }
   if (!stripe_secret_key) {
     return res.status(400).json({ error: 'Falta stripe_secret_key (o secret_key).' });
   }
   if (!woocommerce_url || !woocommerce_consumer_key || !woocommerce_consumer_secret) {
-    return res.status(400).json({
-      error: 'Faltan parámetros de WooCommerce (url/key/secret).'
-    });
+    return res.status(400).json({ error: 'Faltan parámetros de WooCommerce.' });
   }
 
   try {
-    // 4️⃣ Reembolso en Stripe
+    // 4) Reembolso en Stripe
     const stripe = new Stripe(stripe_secret_key, { apiVersion: '2022-11-15' });
-    const refund = await stripe.refunds.create({ charge: chargeId, amount });
+    const refund = await stripe.refunds.create({
+      charge: chargeId,
+      amount  // céntimos
+    });
 
-    // 5️⃣ Instanciar WooCommerce REST API
+    // 5) Inicializar WC REST API
     const wcApi = new WooCommerceRestApi({
-      url:            woocommerce_url,
-      consumerKey:    woocommerce_consumer_key,
-      consumerSecret: woocommerce_consumer_secret,
-      version:        'wc/v3'
+      url:              woocommerce_url,
+      consumerKey:      woocommerce_consumer_key,
+      consumerSecret:   woocommerce_consumer_secret,
+      version:          'wc/v3'
     });
 
-    // 6️⃣ Registrar reembolso en WooCommerce
-    //    IMPORTANTE: enviamos una cadena con punto (p.e. "19.99")
-    const amountEuros = (amount / 100).toFixed(2);
+    // 6) Registrar reembolso en WooCommerce
+    //    amountDecimal debe ser un number, no string
+    const amountDecimal = parseFloat((amount / 100).toFixed(2));
     await wcApi.post(`orders/${orderId}/refunds`, {
-      amount: amountEuros,
-      reason: 'Reembolso desde Zendesk'
+      refund: {
+        amount: amountDecimal,
+        reason: 'Reembolso desde Zendesk'
+      }
     });
 
-    // 7️⃣ Marcar pedido como refunded
-    await wcApi.put(`orders/${orderId}`, { status: 'refunded' });
+    // 7) Marcar pedido como "refunded"
+    await wcApi.put(`orders/${orderId}`, {
+      status: 'refunded'
+    });
 
-    // 8️⃣ Devolver éxito
+    // 8) Responder al frontend
     return res.json({ success: true, refund });
   } catch (err) {
-    console.error('🔥 Error en refund-stripe:', err);
-    if (err.response && err.response.data) {
-      console.error('Response data:', err.response.data);
-      return res.status(500).json({
-        success: false,
-        error: err.response.data.message || JSON.stringify(err.response.data)
-      });
-    }
-    return res.status(500).json({ success: false, error: err.message });
+    console.error('Error en refund-stripe:', err.response?.data || err.message);
+    const message = err.response?.data?.message || err.message;
+    return res.status(500).json({ success: false, error: message });
   }
 });
 
