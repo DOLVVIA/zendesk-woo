@@ -31,8 +31,8 @@ router.post('/', async (req, res) => {
     amount,
     stripe_secret_key,
     woocommerce_url,
-    consumer_key,
-    onsumer_secret
+    woocommerce_consumer_key,
+    woocommerce_consumer_secret
   } = req.body;
 
   // 3) Validaciones básicas
