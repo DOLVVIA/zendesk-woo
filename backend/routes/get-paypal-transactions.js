@@ -1,6 +1,6 @@
 const express = require('express');
-const fetch   = require('node-fetch'); // npm install node-fetch@2
-const router  = express.Router();
+const fetch = require('node-fetch'); // npm install node-fetch@2
+const router = express.Router();
 
 router.get('/', async (req, res) => {
   // 1) Seguridad
@@ -10,10 +10,10 @@ router.get('/', async (req, res) => {
   }
 
   // 2) Parámetros
-  const clientId     = req.query.paypal_client_id;
+  const clientId = req.query.paypal_client_id;
   const clientSecret = req.query.paypal_secret;
-  const email        = (req.query.email || '').toLowerCase();
-  const mode         = req.query.paypal_mode === 'live' ? 'live' : 'sandbox';
+  const email = (req.query.email || '').toLowerCase();
+  const mode = req.query.paypal_mode === 'live' ? 'live' : 'sandbox';
 
   if (!clientId || !clientSecret || !email) {
     return res.status(400).json({
@@ -34,7 +34,7 @@ router.get('/', async (req, res) => {
       method: 'POST',
       headers: {
         'Authorization': `Basic ${auth}`,
-        'Content-Type':  'application/x-www-form-urlencoded'
+        'Content-Type': 'application/x-www-form-urlencoded'
       },
       body: 'grant_type=client_credentials'
     });
@@ -93,18 +93,46 @@ router.get('/', async (req, res) => {
     return res.status(500).json({ error: 'Error consultando transacciones PayPal.' });
   }
 
-  // 6) Filtrar por email
-  const output = allTx
-    .filter(tx => tx.payer_info?.email_address?.toLowerCase() === email)
-    .map(tx => ({
-      id: tx.transaction_info.transaction_id,
+  // 6) Separar pagos y reembolsos
+  const pagos = [];
+  const reembolsos = [];
+
+  allTx.forEach(tx => {
+    const code = tx.transaction_info?.transaction_event_code;
+    const refId = tx.transaction_info?.paypal_reference_id;
+    const payer = tx.payer_info?.email_address?.toLowerCase();
+
+    if (!payer || payer !== email) return;
+
+    if (code?.startsWith('T11')) {
+      // Es un reembolso
+      reembolsos.push({
+        id: refId,
+        amount: parseFloat(tx.transaction_info.transaction_amount.value)
+      });
+    } else {
+      pagos.push(tx);
+    }
+  });
+
+  // 7) Enriquecer pagos con info de reembolso
+  const output = pagos.map(tx => {
+    const id = tx.transaction_info.transaction_id;
+    const match = reembolsos.find(r => r.id === id);
+    const refunded = match?.amount || 0;
+
+    return {
+      id,
       status: tx.transaction_info.transaction_status,
       amount: {
         value: tx.transaction_info.transaction_amount.value,
         currency_code: tx.transaction_info.transaction_amount.currency_code
       },
+      refunded_amount: refunded.toFixed(2),
+      is_refunded: refunded > 0,
       date: tx.transaction_info.transaction_initiation_date
-    }));
+    };
+  });
 
   res.json(output);
 });
