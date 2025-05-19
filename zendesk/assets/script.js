@@ -146,15 +146,16 @@ client.on('app.registered', async () => {
   // fin paypal //
 
 
- // 1) Hacemos el reembolso en Stripe y Woo, actualizamos sólo el bloque de Stripe y colapsamos el panel
+// 1) Hacemos el reembolso en Stripe y Woo, actualizamos solo el bloque de Stripe y colapsamos el panel
 async function refundStripe(chargeId, amount, panel) {
   try {
     const orderId = panel.dataset.orderId;
-    const payload = { orderId, chargeId, amount, ...getStripeConfig(), ...getWooConfig() };
+    const payload = { orderId, chargeId, amount, ...getStripeConfig() };
     console.log('📦 Payload enviado a /refund-stripe:', payload);
 
     const res = await fetch(`${API_BASE}/refund-stripe`, {
-      method: 'POST', headers: getHeaders(),
+      method: 'POST',
+      headers: getHeaders(),
       body: JSON.stringify(payload)
     });
 
@@ -177,11 +178,14 @@ async function refundStripe(chargeId, amount, panel) {
     showMessage(panel, `✅ Reembolso OK (ID: ${refund.id})`);
     const acc = panel.previousElementSibling;
     if (acc && acc.classList.contains('accordion')) {
+      // activa el mismo toggle que el listener global para que cierre + ajuste altura
+      acc.click();
       panel.style.display = 'none';
       acc.classList.remove('active');
+      ajustarAlto();
     }
 
-    // 🔄 Re-renderizar sólo el bloque de Stripe de este panel
+    // 🔄 Re-renderizar solo el bloque de Stripe de este panel
     const billing = JSON.parse(panel.dataset.billing);
     const charges = await loadStripeCharges(billing.email);
     const stripeContainer = panel.querySelector('.stripe-container');
@@ -320,6 +324,7 @@ function renderStripeCharges(charges, container, panel) {
   details.appendChild(ul);
   container.appendChild(details);
 }
+
 
 
   //iniciio reembolso paypal 
