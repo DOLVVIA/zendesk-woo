@@ -15,7 +15,6 @@ router.get('/', async (req, res) => {
   const clientId     = req.query.paypal_client_id;
   const clientSecret = req.query.paypal_secret;
   const email        = (req.query.email || '').toLowerCase();
-  // Si quieres pruebas por defecto, fuerza 'sandbox'
   const mode         = req.query.paypal_mode === 'live' ? 'live' : 'sandbox';
 
   if (!clientId || !clientSecret || !email) {
@@ -24,7 +23,7 @@ router.get('/', async (req, res) => {
     });
   }
 
-  // 3) Construir la URL base según el modo
+  // 3) URL base según modo
   const baseUrl = mode === 'live'
     ? 'https://api-m.paypal.com'
     : 'https://api-m.sandbox.paypal.com';
@@ -59,25 +58,26 @@ router.get('/', async (req, res) => {
     return res.status(500).json({ error: 'Error autenticando en PayPal.' });
   }
 
-  // 5) Paginación en Reporting API (últimos 90 días)
-  const since = new Date(Date.now() - 3*24*60*60*1000).toISOString();
-  const until   = new Date().toISOString();
+  // 5) Buscar transacciones de los últimos 90 días
+  const since    = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+  const until    = new Date().toISOString();
   const pageSize = 50;
-  let page = 1;
-  const allTx = [];
+  let page       = 1;
+  const allTx    = [];
 
   try {
     while (true) {
       const url = new URL(`${baseUrl}/v1/reporting/transactions`);
       url.searchParams.set('start_date', since);
-      url.searchParams.set('end_date',   until);
-      url.searchParams.set('fields',     'all');
-      url.searchParams.set('page_size',  pageSize);
-      url.searchParams.set('page',       page);
+      url.searchParams.set('end_date', until);
+      url.searchParams.set('fields', 'all');
+      url.searchParams.set('page_size', pageSize);
+      url.searchParams.set('page', page);
 
       const rptRes = await fetch(url.toString(), {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       });
+
       const rptJson = await rptRes.json();
 
       if (!rptRes.ok) {
@@ -95,7 +95,7 @@ router.get('/', async (req, res) => {
     return res.status(500).json({ error: 'Error consultando transacciones PayPal.' });
   }
 
-  // 6) Filtrar por email y mapear al formato mínimo
+  // 6) Filtrar por email y formatear
   const output = allTx
     .filter(tx => tx.payer_info?.email_address?.toLowerCase() === email)
     .map(tx => ({
@@ -108,7 +108,7 @@ router.get('/', async (req, res) => {
       date:   tx.transaction_info.transaction_initiation_date
     }));
 
-  // 7) Enviar resultado
+  // 7) Respuesta al frontend
   res.json(output);
 });
 
