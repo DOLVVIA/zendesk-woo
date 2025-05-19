@@ -318,6 +318,7 @@ formPartial.addEventListener('submit', async ev => {
   //iniciio reembolso paypal 
 
 
+
   // Reemplaza toda la definición de renderPayPalTransactions por esto:
 async function renderPayPalTransactions(txs, container, panel) {
   container.innerHTML = '';
