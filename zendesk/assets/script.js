@@ -147,173 +147,197 @@ client.on('app.registered', async () => {
 
 
   // Realiza el reembolso en Stripe **y** lo registra en WooCommerce
-  async function refundStripe(chargeId, amount, panel) {
-    try {
-      const orderId = panel.dataset.orderId;
-      const payload = {
-        orderId,
-        chargeId,
-        amount,
-        ...getStripeConfig(),
-        ...getWooConfig()
-      };
+async function refundStripe(chargeId, amount, panel) {
+  try {
+    const orderId = panel.dataset.orderId;
+    const payload = {
+      orderId,
+      chargeId,
+      amount,
+      ...getStripeConfig(),
+      ...getWooConfig()
+    };
 
-      console.log('📦 Payload enviado a /refund-stripe:', payload);
+    console.log('📦 Payload enviado a /refund-stripe:', payload);
 
-      
-      const res = await fetch(`${API_BASE}/refund-stripe`, {
-        method: 'POST',
-        headers: getHeaders(),
-        body: JSON.stringify(payload)
-      });
-      if (!res.ok) {
-        const text = await res.text();
-        console.error('❌ /refund-stripe error:', res.status, text);
-        showMessage(panel, `Error reembolso: ${res.status}`, 'error');
-        return;
-      }
-      const json = await res.json();
-      if (json.success) {
-        showMessage(panel, `✅ Reembolso OK (ID: ${json.refund.id})`);
-        await loadPedidos();
-      } else {
-        showMessage(panel, `❌ Error reembolso: ${json.error}`, 'error');
-      }
-    } catch (e) {
-      console.error('🛑 Exception en refundStripe:', e);
-      showMessage(panel, 'Error inesperado al reembolsar', 'error');
-    }
-  }
-
-  // Renderiza la lista de cargos de Stripe, con estados completos/parciales
-  function renderStripeCharges(charges, container, panel) {
-    container.innerHTML = '';
-    if (!charges.length) {
-      const noData = document.createElement('p');
-      noData.innerText = 'No hay cargos de Stripe para este cliente.';
-      noData.className = 'mb-2';
-      container.appendChild(noData);
-      return;
-    }
-    const details = document.createElement('details');
-    details.className = 'stripe-payments mt-2 mb-3';
-    const summary = document.createElement('summary');
-    summary.className = 'font-weight-bold';
-    summary.innerText = `Pagos Stripe (${charges.length})`;
-    details.appendChild(summary);
-
-    const ul = document.createElement('ul');
-    ul.className = 'list-unstyled w-100';
-
-    charges.forEach(c => {
-      const fecha = new Date(c.created * 1000).toLocaleString();
-      const title = `${c.metadata?.products || c.description || c.id} (${fecha})`;
-      const amount   = (c.amount / 100).toFixed(2);
-      const refunded = (c.amount_refunded || 0) / 100;
-      const isFull   = c.amount_refunded === c.amount;
-      const isPartial= c.amount_refunded > 0 && c.amount_refunded < c.amount;
-      let statusTxt, badgeClass;
-      if (isFull) {
-        statusTxt = 'Reembolsado';     badgeClass = 'success';
-      } else if (isPartial) {
-        statusTxt = `Parcial (${refunded.toFixed(2)} €)`; badgeClass = 'warning';
-      } else if (c.status === 'succeeded') {
-        statusTxt = 'Exitoso';         badgeClass = 'success';
-      } else {
-        statusTxt = 'Fallido';         badgeClass = 'danger';
-      }
-
-      const li = document.createElement('li');
-      li.className = 'mb-4 w-100';
-
-      // Info + badge
-      const infoDiv = document.createElement('div');
-      infoDiv.className = 'd-flex justify-content-between align-items-center mb-2';
-      infoDiv.innerHTML = `
-        <div>${title} — ${amount} €</div>
-        <div><span class="badge badge-${badgeClass}">${statusTxt}</span></div>
-      `;
-      li.appendChild(infoDiv);
-
-      // Botón “Reembolso completo”
-      const btnFull = document.createElement('button');
-      btnFull.type      = 'button';
-      btnFull.innerText = 'Reembolso completo';
-      btnFull.disabled  = isFull;
-      btnFull.className = 'btn btn-danger btn-block mb-2';
-      btnFull.addEventListener('click', () =>
-        refundStripe(c.id, c.amount, panel)
-      );
-      li.appendChild(btnFull);
-
-      // Botón “Reembolso parcial”
-      const btnPartial = document.createElement('button');
-      btnPartial.type      = 'button';
-      btnPartial.innerText = 'Reembolso parcial';
-      btnPartial.disabled  = isFull;
-      btnPartial.className = 'btn btn-warning btn-block mb-2';
-      li.appendChild(btnPartial);
-
-      // Formulario de reembolso parcial
-      const formPartial = document.createElement('form');
-      formPartial.className   = 'mt-2 mb-3 w-100';
-      formPartial.style.display = 'none';
-
-      // Input de importe
-      const input = document.createElement('input');
-      input.type        = 'number';
-      input.name        = 'partial';
-      input.step        = '0.01';
-      input.min         = '0.01';
-      input.max         = amount;
-      input.placeholder = `Ej: hasta ${amount}`;
-      input.required    = true;
-      input.className   = 'form-control mb-2';
-      formPartial.appendChild(input);
-
-      // Botones Aceptar/Cancelar
-      const acceptBtn = document.createElement('button');
-      acceptBtn.type      = 'submit';
-      acceptBtn.innerText = '✓ Aceptar';
-      acceptBtn.className = 'btn btn-success btn-block mb-2';
-      formPartial.appendChild(acceptBtn);
-
-      const cancelBtn = document.createElement('button');
-      cancelBtn.type      = 'button';
-      cancelBtn.innerText = '✖ Cancelar';
-      cancelBtn.className = 'btn btn-danger btn-block';
-      formPartial.appendChild(cancelBtn);
-
-      li.appendChild(formPartial);
-
-      // Mostrar/ocultar form parcial
-      btnPartial.addEventListener('click', () => {
-        formPartial.style.display = 'block';
-        btnPartial.style.display  = 'none';
-      });
-      cancelBtn.addEventListener('click', () => {
-        formPartial.style.display = 'none';
-        btnPartial.style.display  = 'block';
-        input.value               = '';
-      });
-
-      // Envío del form parcial
-formPartial.addEventListener('submit', async ev => {
-  ev.preventDefault();
-  const val = parseFloat(input.value.replace(',', '.'));
-  if (isNaN(val) || val <= 0 || val > parseFloat(amount)) {
-    return alert(`Importe inválido (0 < importe ≤ ${amount})`);
-  }
-  const cents = Math.round(val * 100); // Stripe usa centavos
-  await refundStripe(c.id, cents, panel); // ✅ FIX aquí
-});
-
-      ul.appendChild(li);
+    const res = await fetch(`${API_BASE}/refund-stripe`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(payload)
     });
 
-    details.appendChild(ul);
-    container.appendChild(details);
+    if (!res.ok) {
+      // Extraemos el mensaje de error del body si es JSON
+      let errMsg;
+      try {
+        const errJson = await res.json();
+        errMsg = errJson.error || JSON.stringify(errJson);
+      } catch {
+        errMsg = await res.text();
+      }
+      console.error('❌ /refund-stripe error:', res.status, errMsg);
+      showMessage(panel, `Error reembolso: ${errMsg}`, 'error');
+      return;
+    }
+
+    const { refund, success, error } = await res.json();
+
+    if (success) {
+      showMessage(panel, `✅ Reembolso OK (ID: ${refund.id})`);
+
+      // Volvemos a pedir SOLO los cargos de Stripe para este e-mail:
+      const billing = JSON.parse(panel.dataset.billing);
+      const charges = await loadStripeCharges(billing.email);
+
+      // Y volvemos a pintar únicamente ese bloque:
+      const stripeContainer = panel.querySelector('.stripe-container');
+      renderStripeCharges(charges, stripeContainer, panel);
+
+    } else {
+      showMessage(panel, `❌ Error reembolso: ${error}`, 'error');
+    }
+
+  } catch (e) {
+    console.error('🛑 Exception en refundStripe:', e);
+    showMessage(panel, `Error inesperado: ${e.message}`, 'error');
   }
+}
+
+
+// Renderiza la lista de cargos de Stripe, con estados completos/parciales
+function renderStripeCharges(charges, container, panel) {
+  container.innerHTML = '';
+
+  if (!charges.length) {
+    const noData = document.createElement('p');
+    noData.innerText = 'No hay cargos de Stripe para este cliente.';
+    noData.className = 'mb-2';
+    container.appendChild(noData);
+    return;
+  }
+
+  const details = document.createElement('details');
+  details.className = 'stripe-payments mt-2 mb-3';
+  const summary = document.createElement('summary');
+  summary.className = 'font-weight-bold';
+  summary.innerText = `Pagos Stripe (${charges.length})`;
+  details.appendChild(summary);
+
+  const ul = document.createElement('ul');
+  ul.className = 'list-unstyled w-100';
+
+  charges.forEach(c => {
+    const fecha   = new Date(c.created * 1000).toLocaleString();
+    const title   = `${c.metadata?.products || c.description || c.id} (${fecha})`;
+    const amount  = (c.amount / 100).toFixed(2);
+    const refunded= (c.amount_refunded || 0) / 100;
+    const isFull  = c.amount_refunded === c.amount;
+    const isPartial = c.amount_refunded > 0 && c.amount_refunded < c.amount;
+
+    let statusTxt, badgeClass;
+    if (isFull) {
+      statusTxt  = 'Reembolsado';
+      badgeClass = 'success';
+    } else if (isPartial) {
+      statusTxt  = `Parcial (${refunded.toFixed(2)} €)`;
+      badgeClass = 'warning';
+    } else if (c.status === 'succeeded') {
+      statusTxt  = 'Exitoso';
+      badgeClass = 'success';
+    } else {
+      statusTxt  = 'Fallido';
+      badgeClass = 'danger';
+    }
+
+    const li = document.createElement('li');
+    li.className = 'mb-4 w-100';
+
+    // Info + badge
+    const infoDiv = document.createElement('div');
+    infoDiv.className = 'd-flex justify-content-between align-items-center mb-2';
+    infoDiv.innerHTML = `
+      <div>${title} — ${amount} €</div>
+      <div><span class="badge badge-${badgeClass}">${statusTxt}</span></div>
+    `;
+    li.appendChild(infoDiv);
+
+    // Botón “Reembolso completo”
+    const btnFull = document.createElement('button');
+    btnFull.type      = 'button';
+    btnFull.innerText = 'Reembolso completo';
+    btnFull.disabled  = isFull;
+    btnFull.className = 'btn btn-danger btn-block mb-2';
+    btnFull.addEventListener('click', () =>
+      refundStripe(c.id, c.amount, panel)
+    );
+    li.appendChild(btnFull);
+
+    // Botón “Reembolso parcial”
+    const btnPartial = document.createElement('button');
+    btnPartial.type      = 'button';
+    btnPartial.innerText = 'Reembolso parcial';
+    btnPartial.disabled  = isFull;
+    btnPartial.className = 'btn btn-warning btn-block mb-2';
+    li.appendChild(btnPartial);
+
+    // Formulario de reembolso parcial
+    const formPartial = document.createElement('form');
+    formPartial.className    = 'mt-2 mb-3 w-100';
+    formPartial.style.display = 'none';
+
+    const input = document.createElement('input');
+    input.type        = 'number';
+    input.name        = 'partial';
+    input.step        = '0.01';
+    input.min         = '0.01';
+    input.max         = amount;
+    input.placeholder = `Ej: hasta ${amount}`;
+    input.required    = true;
+    input.className   = 'form-control mb-2';
+    formPartial.appendChild(input);
+
+    const acceptBtn = document.createElement('button');
+    acceptBtn.type      = 'submit';
+    acceptBtn.innerText = '✓ Aceptar';
+    acceptBtn.className = 'btn btn-success btn-block mb-2';
+    formPartial.appendChild(acceptBtn);
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.type      = 'button';
+    cancelBtn.innerText = '✖ Cancelar';
+    cancelBtn.className = 'btn btn-danger btn-block';
+    formPartial.appendChild(cancelBtn);
+
+    li.appendChild(formPartial);
+
+    // Mostrar/ocultar form parcial
+    btnPartial.addEventListener('click', () => {
+      formPartial.style.display = 'block';
+      btnPartial.style.display  = 'none';
+    });
+    cancelBtn.addEventListener('click', () => {
+      formPartial.style.display = 'none';
+      btnPartial.style.display  = 'block';
+      input.value               = '';
+    });
+
+    // Envío del form parcial
+    formPartial.addEventListener('submit', async ev => {
+      ev.preventDefault();
+      const val = parseFloat(input.value.replace(',', '.'));
+      if (isNaN(val) || val <= 0 || val > parseFloat(amount)) {
+        return alert(`Importe inválido (0 < importe ≤ ${amount})`);
+      }
+      const cents = Math.round(val * 100);
+      await refundStripe(c.id, cents, panel);
+    });
+
+    ul.appendChild(li);
+  });
+
+  details.appendChild(ul);
+  container.appendChild(details);
+}
 
   //iniciio reembolso paypal 
 
@@ -449,6 +473,8 @@ async function renderPayPalTransactions(txs, container, panel) {
 
   async function loadPedidos() {
     const { 'ticket.requester.email': email } = await client.get('ticket.requester.email');
+      // Solo inyectar el buscador manual si aún no existe
+  if (!document.getElementById('btn-buscar-pedido')) {
    // === INICIO BLOQUE: BUSCADOR MANUAL DE PEDIDOS ===
 // Este bloque añade un formulario para buscar pedidos por ID, email o nombre.
 // Usa las mismas claves y funciones que el resto de tu app.
@@ -653,6 +679,7 @@ data.pedidos.forEach(pedido => {
 });
 
 // === FIN BLOQUE: BUSCADOR MANUAL DE PEDIDOS ===
+}
 
     if (!email) return;
     const resultados = document.getElementById('resultados');

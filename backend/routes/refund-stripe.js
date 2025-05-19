@@ -93,8 +93,22 @@ router.post('/', async (req, res) => {
     // 8) Responder al frontend
     return res.json({ success: true, refund });
   } catch (err) {
-    console.error('Error en refund-stripe:', err);
-    return res.status(500).json({ success: false, error: err.message });
+    console.error('🔥 Error en refund-stripe:', err);
+
+    // Si proviene de la API de WooCommerce (axios), extraemos su respuesta
+    if (err.response && err.response.data) {
+      console.error('Response data:', err.response.data);
+      return res.status(500).json({
+        success: false,
+        error: err.response.data.message || JSON.stringify(err.response.data)
+      });
+    }
+
+    // En cualquier otro caso devolvemos el mensaje genérico
+    return res.status(500).json({
+      success: false,
+      error: err.message
+    });
   }
 });
 
