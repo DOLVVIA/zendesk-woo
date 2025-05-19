@@ -1,17 +1,15 @@
-// backend/routes/get-paypal-transactions.js
-
 const express = require('express');
 const fetch   = require('node-fetch'); // npm install node-fetch@2
 const router  = express.Router();
 
 router.get('/', async (req, res) => {
-  // 1) Seguridad: validar x-zendesk-secret
+  // 1) Seguridad
   const incoming = req.get('x-zendesk-secret');
   if (!incoming || incoming !== process.env.ZENDESK_SHARED_SECRET) {
     return res.status(401).json({ error: 'Unauthorized: x-zendesk-secret inválido' });
   }
 
-  // 2) Leer parámetros
+  // 2) Parámetros
   const clientId     = req.query.paypal_client_id;
   const clientSecret = req.query.paypal_secret;
   const email        = (req.query.email || '').toLowerCase();
@@ -23,14 +21,12 @@ router.get('/', async (req, res) => {
     });
   }
 
-  // 3) URL base según modo
+  // 3) Base URL
   const baseUrl = mode === 'live'
     ? 'https://api-m.paypal.com'
     : 'https://api-m.sandbox.paypal.com';
 
-  console.log(`→ PayPal mode: ${mode}, baseUrl: ${baseUrl}`);
-
-  // 4) Obtener access_token
+  // 4) Autenticación
   let accessToken;
   try {
     const auth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
@@ -43,72 +39,73 @@ router.get('/', async (req, res) => {
       body: 'grant_type=client_credentials'
     });
 
-    const tokenText = await tokenRes.text();
-    console.log(`→ /v1/oauth2/token status: ${tokenRes.status}, body: ${tokenText}`);
-
+    const tokenJson = await tokenRes.json();
     if (!tokenRes.ok) {
-      const err = JSON.parse(tokenText);
-      return res.status(500).json({ error: err.error_description || err.error });
+      return res.status(500).json({ error: tokenJson.error_description || tokenJson.error });
     }
 
-    const tokenJson = JSON.parse(tokenText);
     accessToken = tokenJson.access_token;
   } catch (e) {
     console.error('❌ Error autenticando con PayPal:', e);
     return res.status(500).json({ error: 'Error autenticando en PayPal.' });
   }
 
-  // 5) Buscar transacciones de los últimos 90 días
-  const since    = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
-  const until    = new Date().toISOString();
-  const pageSize = 50;
-  let page       = 1;
-  const allTx    = [];
+  // 5) Rango: últimos 90 días en bloques de 30
+  const now = new Date();
+  const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+  const allTx = [];
+
+  const dayMs = 24 * 60 * 60 * 1000;
+  const chunkMs = 30 * dayMs;
 
   try {
-    while (true) {
-      const url = new URL(`${baseUrl}/v1/reporting/transactions`);
-      url.searchParams.set('start_date', since);
-      url.searchParams.set('end_date', until);
-      url.searchParams.set('fields', 'all');
-      url.searchParams.set('page_size', pageSize);
-      url.searchParams.set('page', page);
+    for (let start = new Date(ninetyDaysAgo); start < now; start = new Date(start.getTime() + chunkMs)) {
+      const end = new Date(Math.min(start.getTime() + chunkMs - 1, now.getTime()));
+      let page = 1;
+      const pageSize = 50;
 
-      const rptRes = await fetch(url.toString(), {
-        headers: { 'Authorization': `Bearer ${accessToken}` }
-      });
+      while (true) {
+        const url = new URL(`${baseUrl}/v1/reporting/transactions`);
+        url.searchParams.set('start_date', start.toISOString());
+        url.searchParams.set('end_date', end.toISOString());
+        url.searchParams.set('fields', 'all');
+        url.searchParams.set('page_size', pageSize);
+        url.searchParams.set('page', page);
 
-      const rptJson = await rptRes.json();
+        const rptRes = await fetch(url.toString(), {
+          headers: { Authorization: `Bearer ${accessToken}` }
+        });
 
-      if (!rptRes.ok) {
-        throw new Error(rptJson.error_description || JSON.stringify(rptJson));
+        const rptJson = await rptRes.json();
+        if (!rptRes.ok) {
+          throw new Error(rptJson.error_description || JSON.stringify(rptJson));
+        }
+
+        const txs = rptJson.transaction_details || [];
+        allTx.push(...txs);
+
+        if (txs.length < pageSize) break;
+        page++;
       }
-
-      const txs = rptJson.transaction_details || [];
-      allTx.push(...txs);
-
-      if (txs.length < pageSize) break;
-      page++;
     }
   } catch (e) {
     console.error('❌ Error al listar transacciones:', e);
     return res.status(500).json({ error: 'Error consultando transacciones PayPal.' });
   }
 
-  // 6) Filtrar por email y formatear
+  // 6) Filtrar por email
   const output = allTx
     .filter(tx => tx.payer_info?.email_address?.toLowerCase() === email)
     .map(tx => ({
-      id:     tx.transaction_info.transaction_id,
+      id: tx.transaction_info.transaction_id,
       status: tx.transaction_info.transaction_status,
       amount: {
-        value:         tx.transaction_info.transaction_amount.value,
+        value: tx.transaction_info.transaction_amount.value,
         currency_code: tx.transaction_info.transaction_amount.currency_code
       },
-      date:   tx.transaction_info.transaction_initiation_date
+      date: tx.transaction_info.transaction_initiation_date
     }));
 
-  // 7) Respuesta al frontend
   res.json(output);
 });
 
