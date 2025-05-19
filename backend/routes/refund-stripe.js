@@ -6,51 +6,32 @@ const WooCommerceRestApi = require('@woocommerce/woocommerce-rest-api').default;
 const router = express.Router();
 
 // POST /api/refund-stripe
-// Body JSON posible (compatibilidad antiguas y nuevas propiedades):
-// {
-//   orderId: string,                    // ID de pedido en WooCommerce
-//   chargeId: string,                   // ID de cargo en Stripe
-//   amount: number,                     // importe en céntimos
-//   // Stripe puede venir como `stripe_secret_key` o `secret_key`
-//   stripe_secret_key: string,
-//   secret_key: string,
-//   woocommerce_url: string,            // URL de WooCommerce
-//   // WooCommerce puede venir como consumer_key/consumer_secret
-//   woocommerce_consumer_key: string,
-//   woocommerce_consumer_secret: string,
-//   consumer_key: string,
-//   consumer_secret: string
-// }
 router.post('/', async (req, res) => {
-  // 1) Validar cabecera x-zendesk-secret
+  // 1) Validar x-zendesk-secret
   const incoming = req.get('x-zendesk-secret');
   if (!incoming || incoming !== process.env.ZENDESK_SHARED_SECRET) {
     return res.status(401).json({ error: 'Unauthorized: x-zendesk-secret inválido' });
   }
 
-  // 2) Mapear posibles nombres de campo (front antiguo vs front actualizado)
+  // 2) Mapear nombres antiguos y nuevos
   const {
-    // Stripe
     stripe_secret_key: stripeKeyNew,
     secret_key,
-    // WooCommerce
     woocommerce_consumer_key: wooKeyNew,
     consumer_key,
     woocommerce_consumer_secret: wooSecretNew,
     consumer_secret,
-    // Datos obligatorios
     orderId,
     chargeId,
     amount,
     woocommerce_url
   } = req.body;
 
-  // Elegimos la que exista
   const stripe_secret_key = stripeKeyNew || secret_key;
   const woocommerce_consumer_key    = wooKeyNew || consumer_key;
   const woocommerce_consumer_secret = wooSecretNew || consumer_secret;
 
-  // 3) Validaciones básicas
+  // 3) Validaciones
   if (!orderId || !chargeId || amount == null) {
     return res.status(400).json({ error: 'Falta orderId, chargeId o amount en el body.' });
   }
@@ -66,12 +47,9 @@ router.post('/', async (req, res) => {
   try {
     // 4) Crear reembolso en Stripe
     const stripe = new Stripe(stripe_secret_key, { apiVersion: '2022-11-15' });
-    const refund = await stripe.refunds.create({
-      charge: chargeId,
-      amount
-    });
+    const refund = await stripe.refunds.create({ charge: chargeId, amount });
 
-    // 5) Instanciar WooCommerce REST API con credenciales dinámicas
+    // 5) Instanciar WooCommerce REST API
     const wcApi = new WooCommerceRestApi({
       url:              woocommerce_url,
       consumerKey:      woocommerce_consumer_key,
@@ -79,23 +57,23 @@ router.post('/', async (req, res) => {
       version:          'wc/v3'
     });
 
-    // 6) Registrar reembolso en WooCommerce (importe en €)
+    // 6) Registrar reembolso en WooCommerce
+    //    IMPORTANTE: enviamos amount como número, no como string
+    const amountEuros = parseFloat((amount / 100).toFixed(2));
     await wcApi.post(`orders/${orderId}/refunds`, {
-      amount: (amount / 100).toFixed(2),
+      amount: amountEuros,
       reason: 'Reembolso desde Zendesk'
     });
 
-    // 7) Actualizar estado del pedido a "refunded"
-    await wcApi.put(`orders/${orderId}`, {
-      status: 'refunded'
-    });
+    // 7) Cambiar estado a "refunded"
+    await wcApi.put(`orders/${orderId}`, { status: 'refunded' });
 
-    // 8) Responder al frontend
+    // 8) Respondemos éxito
     return res.json({ success: true, refund });
   } catch (err) {
     console.error('🔥 Error en refund-stripe:', err);
 
-    // Si proviene de la API de WooCommerce (axios), extraemos su respuesta
+    // Si viene de WooCommerce (axios) mostramos su data
     if (err.response && err.response.data) {
       console.error('Response data:', err.response.data);
       return res.status(500).json({
@@ -104,11 +82,8 @@ router.post('/', async (req, res) => {
       });
     }
 
-    // En cualquier otro caso devolvemos el mensaje genérico
-    return res.status(500).json({
-      success: false,
-      error: err.message
-    });
+    // Cualquier otro error
+    return res.status(500).json({ success: false, error: err.message });
   }
 });
 
