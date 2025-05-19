@@ -145,6 +145,7 @@ client.on('app.registered', async () => {
   }
   // fin paypal //
 
+
   // Realiza el reembolso en Stripe **y** lo registra en WooCommerce
   async function refundStripe(chargeId, amount, panel) {
     try {
@@ -153,8 +154,13 @@ client.on('app.registered', async () => {
         orderId,
         chargeId,
         amount,
-        ...getStripeConfig()
+        ...getStripeConfig(),
+        ...getWooConfig()
       };
+
+      console.log('📦 Payload enviado a /refund-stripe:', payload);
+
+      
       const res = await fetch(`${API_BASE}/refund-stripe`, {
         method: 'POST',
         headers: getHeaders(),
@@ -200,7 +206,8 @@ client.on('app.registered', async () => {
     ul.className = 'list-unstyled w-100';
 
     charges.forEach(c => {
-      const title    = c.metadata?.products || c.description || c.id;
+      const fecha = new Date(c.created * 1000).toLocaleString();
+      const title = `${c.metadata?.products || c.description || c.id} (${fecha})`;
       const amount   = (c.amount / 100).toFixed(2);
       const refunded = (c.amount_refunded || 0) / 100;
       const isFull   = c.amount_refunded === c.amount;
@@ -291,15 +298,15 @@ client.on('app.registered', async () => {
       });
 
       // Envío del form parcial
-      formPartial.addEventListener('submit', async ev => {
-        ev.preventDefault();
-        const val = parseFloat(input.value.replace(',', '.'));
-        if (isNaN(val) || val <= 0 || val > parseFloat(amount)) {
-          return alert(`Importe inválido (0 < importe ≤ ${amount})`);
-        }
-        const cents = val.toFixed(2);
-        await refundPayPal(c.id, panel, tx.amount.currency_code, cents);
-      });
+formPartial.addEventListener('submit', async ev => {
+  ev.preventDefault();
+  const val = parseFloat(input.value.replace(',', '.'));
+  if (isNaN(val) || val <= 0 || val > parseFloat(amount)) {
+    return alert(`Importe inválido (0 < importe ≤ ${amount})`);
+  }
+  const cents = Math.round(val * 100); // Stripe usa centavos
+  await refundStripe(c.id, cents, panel); // ✅ FIX aquí
+});
 
       ul.appendChild(li);
     });
@@ -527,9 +534,10 @@ async function mostrarPedido(pedido) {
 
   const acc = document.createElement('button');
   acc.className = 'accordion active';
-  acc.innerText = `Pedido #${pedido.id} – ${pedido.total} € – ${pedido.status}`;
+  acc.innerText = `Pedido #${pedido.id} – ${pedido.total} € – ${pedido.status} – ${pedido.payment_method_title || 'Método desconocido'}`;
 
   const panel = document.createElement('div');
+  panel.dataset.orderId = pedido.id;
   panel.className = 'panel';
   panel.style.display = 'block';
   panel.dataset.billing  = JSON.stringify(pedido.billing  || {});
@@ -554,7 +562,7 @@ async function mostrarPedido(pedido) {
         (x${item.quantity})<br>
         SKU: ${item.sku||'Sin SKU'}<br>
         Variación: ${item.variation_id||'N/A'}<br>
-        Precio: ${item.total} €
+        Precio (IVA incl.): ${(parseFloat(item.total) + parseFloat(item.total_tax)).toFixed(2)} €
       </div>
     `;
     const btnEdit = document.createElement('button');
@@ -668,9 +676,10 @@ data.pedidos.forEach(pedido => {
       for (const pedido of pedidos) {
         const acc = document.createElement('button');
         acc.className = 'accordion';
-        acc.innerText = `Pedido #${pedido.id} – ${pedido.total} € – ${pedido.status}`;
+        acc.innerText = `Pedido #${pedido.id} – ${pedido.total} € – ${pedido.status} – ${pedido.payment_method_title || 'Método desconocido'}`;
 
         const panel = document.createElement('div');
+        panel.dataset.orderId = pedido.id;
         panel.className = 'panel';
         panel.dataset.billing  = JSON.stringify(pedido.billing  || {});
         panel.dataset.shipping = JSON.stringify(pedido.shipping || {});
@@ -694,7 +703,7 @@ data.pedidos.forEach(pedido => {
               (x${item.quantity})<br>
               SKU: ${item.sku||'Sin SKU'}<br>
               Variación: ${item.variation_id||'N/A'}<br>
-              Precio: ${item.total} €
+              Precio (IVA incl.): ${(parseFloat(item.total) + parseFloat(item.total_tax)).toFixed(2)} €
             </div>
           `;
           const btnEdit = document.createElement('button');

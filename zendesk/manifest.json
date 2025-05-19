@@ -37,7 +37,7 @@
       "name": "x_zendesk_secret",
       "type": "text",
       "required": true,
-      "secure": true
+      "secure": false
     },
     {
       "name": "woocommerce_url",
