@@ -673,6 +673,8 @@ async function mostrarPedido(pedido) {
   btnAdd.innerText = 'Añadir artículo';
   panel.appendChild(btnAdd);
 
+  ///
+
   const btnStatus = document.createElement('button');
   btnStatus.className = 'btn-change-status';
   btnStatus.dataset.orderId = pedido.id;
