@@ -2,14 +2,14 @@ const express = require('express');
 const fetch = require('node-fetch'); // npm install node-fetch@2
 const router = express.Router();
 
+const cache = new Map(); // 🔁 Cache en memoria
+
 router.get('/', async (req, res) => {
-  // 1) Seguridad
   const incoming = req.get('x-zendesk-secret');
   if (!incoming || incoming !== process.env.ZENDESK_SHARED_SECRET) {
     return res.status(401).json({ error: 'Unauthorized: x-zendesk-secret inválido' });
   }
 
-  // 2) Parámetros
   const clientId = req.query.paypal_client_id;
   const clientSecret = req.query.paypal_secret;
   const email = (req.query.email || '').toLowerCase();
@@ -21,12 +21,16 @@ router.get('/', async (req, res) => {
     });
   }
 
-  // 3) Base URL
+  const cacheKey = `${email}-${mode}`;
+  const cached = cache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < 5 * 60 * 1000) {
+    return res.json(cached.data);
+  }
+
   const baseUrl = mode === 'live'
     ? 'https://api-m.paypal.com'
     : 'https://api-m.sandbox.paypal.com';
 
-  // 4) Autenticación
   let accessToken;
   try {
     const auth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
@@ -50,7 +54,6 @@ router.get('/', async (req, res) => {
     return res.status(500).json({ error: 'Error autenticando en PayPal.' });
   }
 
-  // 5) Rango: últimos 90 días en bloques de 30
   const now = new Date();
   const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
   const allTx = [];
@@ -85,55 +88,57 @@ router.get('/', async (req, res) => {
         allTx.push(...txs);
 
         if (txs.length < pageSize) break;
+
+        await new Promise(resolve => setTimeout(resolve, 800)); // 🧘 delay entre páginas
         page++;
       }
     }
   } catch (e) {
-    console.error('❌ Error al listar transacciones:', e);
+    console.error('❌ Error al listar transacciones:', e.message);
     return res.status(500).json({ error: 'Error consultando transacciones PayPal.' });
   }
 
-  // 6) Separar pagos y reembolsos
   const pagos = [];
   const reembolsos = [];
 
   allTx.forEach(tx => {
-    const code = tx.transaction_info?.transaction_event_code;
-    const refId = tx.transaction_info?.paypal_reference_id;
+    const info = tx.transaction_info;
     const payer = tx.payer_info?.email_address?.toLowerCase();
-
     if (!payer || payer !== email) return;
 
-    if (code?.startsWith('T11')) {
-      // Es un reembolso
+    const code = info?.transaction_event_code;
+    const refId = info?.paypal_reference_id;
+
+    if (code?.startsWith('T11') && refId) {
       reembolsos.push({
-        id: refId,
-        amount: parseFloat(tx.transaction_info.transaction_amount.value)
+        refId,
+        amount: parseFloat(info.transaction_amount.value)
       });
     } else {
       pagos.push(tx);
     }
   });
 
-  // 7) Enriquecer pagos con info de reembolso
   const output = pagos.map(tx => {
-    const id = tx.transaction_info.transaction_id;
-    const match = reembolsos.find(r => r.id === id);
-    const refunded = match?.amount || 0;
+    const info = tx.transaction_info;
+    const id = info.transaction_id;
+    const total = parseFloat(info.transaction_amount.value);
+    const currency = info.transaction_amount.currency_code;
+
+    const refundMatches = reembolsos.filter(r => r.refId === id);
+    const refunded = refundMatches.reduce((sum, r) => sum + r.amount, 0);
 
     return {
       id,
-      status: tx.transaction_info.transaction_status,
-      amount: {
-        value: tx.transaction_info.transaction_amount.value,
-        currency_code: tx.transaction_info.transaction_amount.currency_code
-      },
+      status: info.transaction_status,
+      amount: { value: total.toFixed(2), currency_code: currency },
       refunded_amount: refunded.toFixed(2),
       is_refunded: refunded > 0,
-      date: tx.transaction_info.transaction_initiation_date
+      date: info.transaction_initiation_date
     };
   });
 
+  cache.set(cacheKey, { timestamp: Date.now(), data: output }); // 💾 Guardar en cache
   res.json(output);
 });
 
