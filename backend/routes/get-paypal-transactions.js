@@ -1,37 +1,50 @@
 const express = require('express');
-const fetch = require('node-fetch'); // npm install node-fetch@2
-const router = express.Router();
+const fetch   = require('node-fetch'); // npm install node-fetch@2
+const router  = express.Router();
 
 const cache = new Map(); // 🔁 Cache en memoria
 
 router.get('/', async (req, res) => {
   console.log('💬 Query recibida en /get-paypal-transactions:', req.query);
+
+  // ─── Seguridad ─────────────────────────────────────────────────────────
   const incoming = req.get('x-zendesk-secret');
   if (!incoming || incoming !== process.env.ZENDESK_SHARED_SECRET) {
     return res.status(401).json({ error: 'Unauthorized: x-zendesk-secret inválido' });
   }
 
-  const clientId = req.query.paypal_client_id;
-  const clientSecret = req.query.paypal_secret;
-  const email = (req.query.email || '').toLowerCase();
-  const mode = req.query.paypal_mode === 'live' ? 'live' : 'sandbox';
+  // ─── Parámetros ────────────────────────────────────────────────────────
+  const {
+    paypal_client_id: clientId,
+    paypal_secret:    clientSecret,
+    paypal_mode:      rawMode,
+    email:            rawEmail,
+    order_id,
+    order_date
+  } = req.query;
 
-  if (!clientId || !clientSecret || !email) {
+  const email = (rawEmail || '').toLowerCase();
+  const mode  = rawMode === 'live' ? 'live' : 'sandbox';
+
+  if (!clientId || !clientSecret || !email || !order_id || !order_date) {
     return res.status(400).json({
-      error: 'Faltan paypal_client_id, paypal_secret o email en la query.'
+      error: 'Faltan paypal_client_id, paypal_secret, email, order_id o order_date en la query.'
     });
   }
 
-  const cacheKey = `${email}-${mode}`;
-  const cached = cache.get(cacheKey);
+  // ─── Cache key ─────────────────────────────────────────────────────────
+  const cacheKey = `${order_id}-${email}-${mode}`;
+  const cached   = cache.get(cacheKey);
   if (cached && Date.now() - cached.timestamp < 5 * 60 * 1000) {
     return res.json(cached.data);
   }
 
+  // ─── URLs base PayPal ───────────────────────────────────────────────────
   const baseUrl = mode === 'live'
     ? 'https://api-m.paypal.com'
     : 'https://api-m.sandbox.paypal.com';
 
+  // ─── 1) Obtener access token ─────────────────────────────────────────────
   let accessToken;
   try {
     const auth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
@@ -39,7 +52,7 @@ router.get('/', async (req, res) => {
       method: 'POST',
       headers: {
         'Authorization': `Basic ${auth}`,
-        'Content-Type': 'application/x-www-form-urlencoded'
+        'Content-Type':  'application/x-www-form-urlencoded'
       },
       body: 'grant_type=client_credentials'
     });
@@ -48,67 +61,54 @@ router.get('/', async (req, res) => {
     if (!tokenRes.ok) {
       return res.status(500).json({ error: tokenJson.error_description || tokenJson.error });
     }
-
     accessToken = tokenJson.access_token;
   } catch (e) {
     console.error('❌ Error autenticando con PayPal:', e);
     return res.status(500).json({ error: 'Error autenticando en PayPal.' });
   }
 
-  const now = new Date();
-  const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
-  const allTx = [];
-
-  const dayMs = 24 * 60 * 60 * 1000;
-  const chunkMs = 30 * dayMs;
-
+  // ─── 2) Llamada única al Reporting API con invoice_id + ventana de ±5 min ──
+  let allTx = [];
   try {
-    for (let start = new Date(ninetyDaysAgo); start < now; start = new Date(start.getTime() + chunkMs)) {
-      const end = new Date(Math.min(start.getTime() + chunkMs - 1, now.getTime()));
-      let page = 1;
-      const pageSize = 50;
+    const odDate = new Date(order_date);
+    const start  = new Date(odDate.getTime() - 5 * 60 * 1000).toISOString(); // -5 min
+    const end    = new Date(odDate.getTime() + 5 * 60 * 1000).toISOString(); // +5 min
 
-      while (true) {
-        const url = new URL(`${baseUrl}/v1/reporting/transactions`);
-        url.searchParams.set('start_date', start.toISOString());
-        url.searchParams.set('end_date', end.toISOString());
-        url.searchParams.set('fields', 'all');
-        url.searchParams.set('page_size', pageSize);
-        url.searchParams.set('page', page);
+    const url = new URL(`${baseUrl}/v1/reporting/transactions`);
+    url.searchParams.set('invoice_id', order_id);
+    url.searchParams.set('start_date',  start);
+    url.searchParams.set('end_date',    end);
+    url.searchParams.set('fields',      'all');
+    url.searchParams.set('page_size',   50);
 
-        const rptRes = await fetch(url.toString(), {
-          headers: { Authorization: `Bearer ${accessToken}` }
-        });
+    console.log('🔍 PayPal Reporting URL:', url.toString());
 
-        const rptJson = await rptRes.json();
-        if (!rptRes.ok) {
-          throw new Error(rptJson.error_description || JSON.stringify(rptJson));
-        }
-
-        const txs = rptJson.transaction_details || [];
-        allTx.push(...txs);
-
-        if (txs.length < pageSize) break;
-
-        await new Promise(resolve => setTimeout(resolve, 800)); // 🧘 delay entre páginas
-        page++;
-      }
+    const rptRes  = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+    const rptJson = await rptRes.json();
+    if (!rptRes.ok) {
+      throw new Error(rptJson.error_description || JSON.stringify(rptJson));
     }
+
+    allTx = rptJson.transaction_details || [];
+    console.log('✅ transacciones recuperadas:', allTx.map(t => t.transaction_info.transaction_id));
   } catch (e) {
     console.error('❌ Error al listar transacciones:', e.message);
     return res.status(500).json({ error: 'Error consultando transacciones PayPal.' });
   }
 
-  const pagos = [];
+  // ─── 3) Filtrar por email y separar pagos / reembolsos ──────────────────
+  const pagos      = [];
   const reembolsos = [];
 
   allTx.forEach(tx => {
-    const info = tx.transaction_info;
+    const info  = tx.transaction_info;
     const payer = tx.payer_info?.email_address?.toLowerCase();
     if (!payer || payer !== email) return;
 
-    const code = info?.transaction_event_code;
-    const refId = info?.paypal_reference_id;
+    const code  = info.transaction_event_code;
+    const refId = info.paypal_reference_id;
 
     if (code?.startsWith('T11') && refId) {
       reembolsos.push({
@@ -120,26 +120,28 @@ router.get('/', async (req, res) => {
     }
   });
 
+  // ─── 4) Formatear salida igual que antes ───────────────────────────────
   const output = pagos.map(tx => {
-    const info = tx.transaction_info;
-    const id = info.transaction_id;
-    const total = parseFloat(info.transaction_amount.value);
-    const currency = info.transaction_amount.currency_code;
+    const info    = tx.transaction_info;
+    const id      = info.transaction_id;
+    const total   = parseFloat(info.transaction_amount.value);
+    const currency= info.transaction_amount.currency_code;
 
     const refundMatches = reembolsos.filter(r => r.refId === id);
-    const refunded = refundMatches.reduce((sum, r) => sum + r.amount, 0);
+    const refunded      = refundMatches.reduce((sum, r) => sum + r.amount, 0);
 
     return {
       id,
-      status: info.transaction_status,
-      amount: { value: total.toFixed(2), currency_code: currency },
+      status:          info.transaction_status,
+      amount:          { value: total.toFixed(2), currency_code: currency },
       refunded_amount: refunded.toFixed(2),
-      is_refunded: refunded > 0,
-      date: info.transaction_initiation_date
+      is_refunded:     refunded > 0,
+      date:            info.transaction_initiation_date
     };
   });
 
-  cache.set(cacheKey, { timestamp: Date.now(), data: output }); // 💾 Guardar en cache
+  // ─── 5) Guardar en cache y devolver ────────────────────────────────────
+  cache.set(cacheKey, { timestamp: Date.now(), data: output });
   res.json(output);
 });
 
