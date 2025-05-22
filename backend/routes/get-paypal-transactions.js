@@ -20,16 +20,15 @@ router.get('/', async (req, res) => {
     paypal_secret:    clientSecret,
     paypal_mode:      rawMode,
     email:            rawEmail,
-    order_id,
-    order_date
+    order_id
   } = req.query;
 
   const email = (rawEmail || '').toLowerCase();
   const mode  = rawMode === 'live' ? 'live' : 'sandbox';
 
-  if (!clientId || !clientSecret || !email || !order_id || !order_date) {
+  if (!clientId || !clientSecret || !email || !order_id) {
     return res.status(400).json({
-      error: 'Faltan paypal_client_id, paypal_secret, email, order_id o order_date en la query.'
+      error: 'Faltan paypal_client_id, paypal_secret, email o order_id en la query.'
     });
   }
 
@@ -40,12 +39,12 @@ router.get('/', async (req, res) => {
     return res.json(cached.data);
   }
 
-  // ─── URLs base PayPal ───────────────────────────────────────────────────
+  // ─── URLs base ─────────────────────────────────────────────────────────
   const baseUrl = mode === 'live'
     ? 'https://api-m.paypal.com'
     : 'https://api-m.sandbox.paypal.com';
 
-  // ─── 1) Obtener access token ─────────────────────────────────────────────
+  // ─── 1) Obtener token ──────────────────────────────────────────────────
   let accessToken;
   try {
     const auth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
@@ -57,7 +56,6 @@ router.get('/', async (req, res) => {
       },
       body: 'grant_type=client_credentials'
     });
-
     const tokenJson = await tokenRes.json();
     if (!tokenRes.ok) {
       return res.status(500).json({ error: tokenJson.error_description || tokenJson.error });
@@ -68,74 +66,65 @@ router.get('/', async (req, res) => {
     return res.status(500).json({ error: 'Error autenticando en PayPal.' });
   }
 
-  // ─── 2) Llamada única al Reporting API con invoice_id ───────────────────
-  let allTx = [];
+  // ─── 2) Traer el pedido de WooCommerce ─────────────────────────────────
+  let order;
   try {
-    const url = new URL(`${baseUrl}/v1/reporting/transactions`);
-    url.searchParams.set('invoice_id', order_id);
-    url.searchParams.set('fields',      'all');
-    url.searchParams.set('page_size',   50);
-
-    console.log('🔍 PayPal Reporting URL:', url.toString());
-
-    const rptRes  = await fetch(url.toString(), {
-      headers: { Authorization: `Bearer ${accessToken}` }
-    });
-    const rptJson = await rptRes.json();
-    if (!rptRes.ok) {
-      throw new Error(rptJson.error_description || JSON.stringify(rptJson));
-    }
-
-    allTx = rptJson.transaction_details || [];
-    console.log('✅ transacciones recuperadas:', allTx.map(t => t.transaction_info.transaction_id));
+    const { woocommerce_url, consumer_key, consumer_secret } = req.query;
+    const wcRes = await fetch(
+      `${woocommerce_url}/wp-json/wc/v3/orders/${order_id}` +
+      `?consumer_key=${consumer_key}&consumer_secret=${consumer_secret}`
+    );
+    if (!wcRes.ok) throw new Error('Error al traer pedido WooCommerce');
+    order = await wcRes.json();
   } catch (e) {
-    console.error('❌ Error al listar transacciones:', e.message);
-    return res.status(500).json({ error: 'Error consultando transacciones PayPal.' });
+    console.error('❌ Error WooCommerce:', e);
+    return res.status(500).json({ error: 'Error obteniendo pedido de WooCommerce.' });
   }
 
-  // ─── 3) Filtrar por email y separar pagos / reembolsos ──────────────────
-  const pagos      = [];
-  const reembolsos = [];
-
-  allTx.forEach(tx => {
-    const info  = tx.transaction_info;
-    const payer = tx.payer_info?.email_address?.toLowerCase();
-    if (!payer || payer !== email) return;
-
-    const code  = info.transaction_event_code;
-    const refId = info.paypal_reference_id;
-
-    if (code?.startsWith('T11') && refId) {
-      reembolsos.push({
-        refId,
-        amount: parseFloat(info.transaction_amount.value)
-      });
-    } else {
-      pagos.push(tx);
+  // ─── 3) Extraer IDs de captura PayPal ─────────────────────────────────
+  const captureIds = new Set();
+  if (order.transaction_id) captureIds.add(order.transaction_id);
+  (order.meta_data || []).forEach(m => {
+    // Ajusta la key a la que use tu upsell/plugin
+    if (m.key === 'wfocu_ppcp_order_current' || m.key === '_paypal_capture_id') {
+      captureIds.add(m.value);
     }
   });
+  if (!captureIds.size) {
+    return res.json([]); // no hay capturas
+  }
 
-  // ─── 4) Formatear salida igual que antes ───────────────────────────────
-  const output = pagos.map(tx => {
-    const info     = tx.transaction_info;
-    const id       = info.transaction_id;
-    const total    = parseFloat(info.transaction_amount.value);
-    const currency = info.transaction_amount.currency_code;
+  // ─── 4) Llamar a la API de Capturas de PayPal en paralelo ─────────────
+  const detalles = await Promise.all(
+    [...captureIds].map(async id => {
+      try {
+        const resp = await fetch(`${baseUrl}/v2/payments/captures/${id}`, {
+          headers: { Authorization: `Bearer ${accessToken}` }
+        });
+        if (!resp.ok) throw new Error(`PayPal ${id}: ${resp.status}`);
+        return resp.json();
+      } catch (err) {
+        console.error('❌ Error PayPal capture:', id, err);
+        return null;
+      }
+    })
+  );
 
-    const refundMatches = reembolsos.filter(r => r.refId === id);
-    const refunded      = refundMatches.reduce((sum, r) => sum + r.amount, 0);
+  // ─── 5) Filtrar nulos y por email, formatear salida ───────────────────
+  const output = detalles
+    .filter(d => d && d.payer && d.payer.email_address?.toLowerCase() === email)
+    .map(d => ({
+      id:           d.id,
+      status:       d.status,
+      amount:       { value: parseFloat(d.amount.value).toFixed(2), currency_code: d.amount.currency_code },
+      refunded_amount: d.payment_state === 'REFUNDED'
+        ? (parseFloat(d.amount.value) - parseFloat(d.supplementary_data?.refund_info?.gross_refund_amount?.value || 0)).toFixed(2)
+        : '0.00',
+      is_refunded:  d.payment_state === 'REFUNDED',
+      date:         d.create_time
+    }));
 
-    return {
-      id,
-      status:          info.transaction_status,
-      amount:          { value: total.toFixed(2), currency_code: currency },
-      refunded_amount: refunded.toFixed(2),
-      is_refunded:     refunded > 0,
-      date:            info.transaction_initiation_date
-    };
-  });
-
-  // ─── 5) Guardar en cache y devolver ────────────────────────────────────
+  // ─── 6) Cache y respuesta ─────────────────────────────────────────────
   cache.set(cacheKey, { timestamp: Date.now(), data: output });
   res.json(output);
 });
