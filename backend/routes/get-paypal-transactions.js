@@ -68,17 +68,11 @@ router.get('/', async (req, res) => {
     return res.status(500).json({ error: 'Error autenticando en PayPal.' });
   }
 
-  // ─── 2) Llamada única al Reporting API con invoice_id + ventana de ±5 min ──
+  // ─── 2) Llamada única al Reporting API con invoice_id ───────────────────
   let allTx = [];
   try {
-    const odDate = new Date(order_date);
-    const start  = new Date(odDate.getTime() - 5 * 60 * 1000).toISOString();  // -5 min
-    const end    = new Date(odDate.getTime() + 5 * 60 * 1000).toISOString();  // +5 min
-
     const url = new URL(`${baseUrl}/v1/reporting/transactions`);
     url.searchParams.set('invoice_id', order_id);
-    url.searchParams.set('start_date',  start);
-    url.searchParams.set('end_date',    end);
     url.searchParams.set('fields',      'all');
     url.searchParams.set('page_size',   50);
 
