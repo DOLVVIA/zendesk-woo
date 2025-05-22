@@ -26,7 +26,8 @@
   "assets": {
     "iframe.html": "assets/iframe.html",
     "script.js":   "assets/script.js",
-    "styles.css":  "assets/styles.css"
+    "styles.css":  "assets/styles.css",
+    "logo.png":    "assets/logo.png"
   },
   "proxy": {
     "origin": "https://zendesk-woo.onrender.com",
