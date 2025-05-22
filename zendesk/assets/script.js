@@ -325,6 +325,51 @@ function renderStripeCharges(charges, container, panel) {
   container.appendChild(details);
 }
 
+//refund paypal//
+// 3) Hacer refund en PayPal (completo o parcial)
+async function refundPayPal(transactionId, panel, currency, amount) {
+  try {
+    // Obtener credenciales PayPal
+    const { paypal_client_id, paypal_secret, paypal_mode } = getPayPalConfig();
+    // Construir payload
+    const payload = {
+      transactionId,
+      amount:        typeof amount === 'number' ? amount.toFixed(2) : amount,
+      currency,
+      paypal_client_id,
+      paypal_secret,
+      paypal_mode
+    };
+
+    // Llamada al endpoint de refund-paypal
+    const res = await fetch(`${API_BASE}/refund-paypal`, {
+      method:  'POST',
+      headers: getHeaders(),
+      body:    JSON.stringify(payload)
+    });
+    if (!res.ok) {
+      // Intentar extraer mensaje de error
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error || 'Error en refund PayPal');
+    }
+
+    const { refund } = await res.json();
+    // Mostrar mensaje de éxito
+    showMessage(panel, `✅ Reembolso PayPal OK (ID: ${refund.id})`);
+
+    // Volver a cargar las transacciones de PayPal para actualizar el estado
+    const billingEmail = JSON.parse(panel.dataset.billing).email;
+    const txs = await loadPayPalTransactions(billingEmail);
+    const paypalContainer = panel.querySelector('.paypal-container');
+    renderPayPalTransactions(txs, paypalContainer, panel);
+
+  } catch (e) {
+    console.error('❌ Error en refundPayPal:', e);
+    showMessage(panel, `Error reembolso PayPal: ${e.message}`, 'error');
+  }
+}
+//fin refund
+
 async function renderPayPalTransactions(txs, container, panel) {
   container.innerHTML = '';
 
@@ -335,8 +380,31 @@ async function renderPayPalTransactions(txs, container, panel) {
   summary.className = 'font-weight-bold';
   summary.innerText = `Transacciones PayPal (${txs.length})`;
   details.appendChild(summary);
+  
+  //boton cargar paypal 
+  const btnCargarPaypal = document.createElement('button');
+btnCargarPaypal.id = 'load-paypal-transactions';
+btnCargarPaypal.innerText = '🔍 Cargar transacciones de PayPal';
+btnCargarPaypal.className = 'btn btn-secondary btn-block mb-2';
+details.appendChild(btnCargarPaypal);
 
-  // Buscador manual por email
+btnCargarPaypal.addEventListener('click', async () => {
+  const billingEmail = JSON.parse(panel.dataset.billing).email;
+  if (!billingEmail) return alert('No hay email de facturación');
+
+  btnCargarPaypal.disabled = true;
+  btnCargarPaypal.innerText = '⏳ Cargando...';
+
+  const transacciones = await loadPayPalTransactions(billingEmail);
+  console.log('📦 Transacciones PayPal:', transacciones);
+  renderPayPalTransactions(transacciones, container, panel);
+});
+
+//fin boton cargar paypal 
+  
+  
+  
+  // Buscador manual
   const searchDiv = document.createElement('div');
   searchDiv.className = 'mb-3';
   searchDiv.innerHTML = `
@@ -366,20 +434,25 @@ async function renderPayPalTransactions(txs, container, panel) {
   ul.className = 'list-unstyled w-100';
 
   txs.forEach(tx => {
-    const amountVal = parseFloat(tx.amount.value).toFixed(2);
-    const refundedVal = parseFloat(tx.refunded_amount || 0);
+    const amountVal = parseFloat(tx.amount.value);
+    const refundedVal = Math.abs(parseFloat(tx.refunded_amount || 0));
     const isRefunded = refundedVal > 0;
+    const isPartial = isRefunded && refundedVal < amountVal;
 
-    const badgeClass = isRefunded ? 'info' : 'success';
-    const statusTxt = isRefunded
-      ? `Reembolsado (${refundedVal.toFixed(2)} €)`
-      : 'Completado';
+    let badgeClass, statusTxt;
+    if (isRefunded) {
+      statusTxt = `Reembolsado (${refundedVal.toFixed(2)} €)`;
+      badgeClass = isPartial ? 'warning' : 'info';
+    } else {
+      statusTxt = 'Completado';
+      badgeClass = 'success';
+    }
 
     const li = document.createElement('li');
     li.className = 'mb-4 w-100';
     li.innerHTML = `
       <div class="d-flex justify-content-between align-items-center mb-1">
-        <div>ID: ${tx.id} — ${amountVal} ${tx.amount.currency_code}</div>
+        <div>ID: ${tx.id} — ${amountVal.toFixed(2)} ${tx.amount.currency_code}</div>
         <div><span class="badge badge-${badgeClass}">${statusTxt}</span></div>
       </div>
       <div>Fecha: ${new Date(tx.date).toLocaleString()}</div>
@@ -392,7 +465,7 @@ async function renderPayPalTransactions(txs, container, panel) {
     btnFull.className = 'btn btn-danger btn-block mt-2';
     btnFull.disabled = isRefunded;
     btnFull.addEventListener('click', () =>
-      refundPayPal(tx.id, panel, tx.amount.currency_code, tx.amount.value)
+      refundPayPal(tx.id, panel, tx.amount.currency_code, amountVal)
     );
     li.appendChild(btnFull);
 
@@ -413,8 +486,8 @@ async function renderPayPalTransactions(txs, container, panel) {
     input.name = 'partial';
     input.step = '0.01';
     input.min = '0.01';
-    input.max = amountVal;
-    input.placeholder = `Ej: hasta ${amountVal}`;
+    input.max = amountVal.toFixed(2);
+    input.placeholder = `Ej: hasta ${amountVal.toFixed(2)}`;
     input.required = true;
     input.className = 'form-control mb-2';
     formPartial.appendChild(input);
@@ -447,8 +520,8 @@ async function renderPayPalTransactions(txs, container, panel) {
     formPartial.addEventListener('submit', async ev => {
       ev.preventDefault();
       const val = parseFloat(input.value.replace(',', '.'));
-      if (isNaN(val) || val <= 0 || val > parseFloat(amountVal)) {
-        return alert(`Importe inválido (0 < importe ≤ ${amountVal})`);
+      if (isNaN(val) || val <= 0 || val > amountVal) {
+        return alert(`Importe inválido (0 < importe ≤ ${amountVal.toFixed(2)})`);
       }
       const reAmount = val.toFixed(2);
       await refundPayPal(tx.id, panel, tx.amount.currency_code, reAmount);
@@ -460,7 +533,6 @@ async function renderPayPalTransactions(txs, container, panel) {
   details.appendChild(ul);
   container.appendChild(details);
 }
-
 
 
 
@@ -641,7 +713,7 @@ async function mostrarPedido(pedido) {
   {
     const paypalContainer = document.createElement('div');
     paypalContainer.className = 'paypal-container mt-2 mb-3';
-    const txs = b.email ? await loadPayPalTransactions(b.email) : [];
+    const txs = [];
     renderPayPalTransactions(txs, paypalContainer, panel);
     panel.appendChild(paypalContainer);
   }
@@ -795,7 +867,7 @@ data.pedidos.forEach(pedido => {
         {
           const paypalContainer = document.createElement('div');
           paypalContainer.className = 'paypal-container mt-2 mb-3';
-          const txs = b.email ? await loadPayPalTransactions(b.email) : [];
+          const txs = [];
           renderPayPalTransactions(txs, paypalContainer, panel);
           panel.appendChild(paypalContainer);
         }

@@ -5,6 +5,7 @@ const router = express.Router();
 const cache = new Map(); // 🔁 Cache en memoria
 
 router.get('/', async (req, res) => {
+  console.log('💬 Query recibida en /get-paypal-transactions:', req.query);
   const incoming = req.get('x-zendesk-secret');
   if (!incoming || incoming !== process.env.ZENDESK_SHARED_SECRET) {
     return res.status(401).json({ error: 'Unauthorized: x-zendesk-secret inválido' });
