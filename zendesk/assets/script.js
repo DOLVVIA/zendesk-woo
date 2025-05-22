@@ -409,19 +409,20 @@ async function renderPayPalTransactions(txs, container, panel) {
   btnCargarPaypal.className = 'btn btn-secondary btn-block mb-2';
   details.appendChild(btnCargarPaypal);
 
-  btnCargarPaypal.addEventListener('click', async () => {
-    const billingEmail = JSON.parse(panel.dataset.billing).email;
-    if (!billingEmail) return alert('No hay email de facturación');
+btnCargarPaypal.addEventListener('click', async () => {
+  const billingEmail = JSON.parse(panel.dataset.billing).email;
+  const orderId      = panel.dataset.orderId;
+  const orderDate    = panel.dataset.orderDate;
+  if (!billingEmail) return alert('No hay email de facturación');
 
-    btnCargarPaypal.disabled = true;
-    btnCargarPaypal.innerText = '⏳ Cargando…';
+  btnCargarPaypal.disabled = true;
+  btnCargarPaypal.innerText = '⏳ Cargando…';
 
-    const orderId   = panel.dataset.orderId;
-    const orderDate = panel.dataset.orderDate;
-    const transacciones = await loadPayPalTransactions(billingEmail, orderId, orderDate);
-    console.log('📦 Transacciones PayPal:', transacciones);
-    renderPayPalTransactions(transacciones, container, panel);
-  });
+  const transacciones = await loadPayPalTransactions(billingEmail, orderId, orderDate);
+  console.log('📦 Transacciones PayPal:', transacciones);
+  renderPayPalTransactions(transacciones, container, panel);
+});
+
 
   // 👇 Buscador manual también usa orderId/orderDate desde panel
   const searchDiv = document.createElement('div');

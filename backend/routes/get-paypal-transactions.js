@@ -1,3 +1,4 @@
+// routes/paypal-transactions.js
 const express = require('express');
 const fetch   = require('node-fetch'); // npm install node-fetch@2
 const router  = express.Router();
@@ -71,8 +72,8 @@ router.get('/', async (req, res) => {
   let allTx = [];
   try {
     const odDate = new Date(order_date);
-    const start  = new Date(odDate.getTime() - 5 * 60 * 1000).toISOString(); // -5 min
-    const end    = new Date(odDate.getTime() + 5 * 60 * 1000).toISOString(); // +5 min
+    const start  = new Date(odDate.getTime() - 5 * 60 * 1000).toISOString();  // -5 min
+    const end    = new Date(odDate.getTime() + 5 * 60 * 1000).toISOString();  // +5 min
 
     const url = new URL(`${baseUrl}/v1/reporting/transactions`);
     url.searchParams.set('invoice_id', order_id);
@@ -122,10 +123,10 @@ router.get('/', async (req, res) => {
 
   // ─── 4) Formatear salida igual que antes ───────────────────────────────
   const output = pagos.map(tx => {
-    const info    = tx.transaction_info;
-    const id      = info.transaction_id;
-    const total   = parseFloat(info.transaction_amount.value);
-    const currency= info.transaction_amount.currency_code;
+    const info     = tx.transaction_info;
+    const id       = info.transaction_id;
+    const total    = parseFloat(info.transaction_amount.value);
+    const currency = info.transaction_amount.currency_code;
 
     const refundMatches = reembolsos.filter(r => r.refId === id);
     const refunded      = refundMatches.reduce((sum, r) => sum + r.amount, 0);
