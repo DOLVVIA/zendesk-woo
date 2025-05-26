@@ -601,6 +601,55 @@ btnCargarPaypal.addEventListener('click', async () => {
 
 
 
+/**
+ * Renderiza la lista de cargos MONEI en el panel
+ * @param {Array} charges  — Array de objetos { id, status, amount, currency, createdAt, paymentMethod }
+ * @param {HTMLElement} container — div vacío donde inyectar el listado
+ * @param {HTMLElement} panel — el panel completo (para data-attrs si quisieras re-render)
+ */
+function renderMoneiCharges(charges, container, panel) {
+  container.innerHTML = '';              // limpia contenido anterior
+  if (!charges.length) {
+    container.innerHTML = '<p>No hay transacciones MONEI para este cliente.</p>';
+    return;
+  }
+
+  const details = document.createElement('details');
+  details.className = 'monei-payments mt-2 mb-3';
+
+  const summary = document.createElement('summary');
+  summary.className = 'font-weight-bold';
+  summary.innerText = `Transacciones MONEI (${charges.length})`;
+  details.appendChild(summary);
+
+  const ul = document.createElement('ul');
+  ul.className = 'list-unstyled w-100';
+
+  charges.forEach(c => {
+    const fecha  = new Date(c.createdAt).toLocaleString();
+    const importe= (c.amount / 100).toFixed(2);
+    const li     = document.createElement('li');
+    li.className = 'mb-2';
+    li.innerHTML = `
+      <div>
+        <strong>ID:</strong> ${c.id}
+        — <strong>Estado:</strong> ${c.status}
+        — <strong>Importe:</strong> ${importe} ${c.currency}
+        — <strong>Fecha:</strong> ${fecha}
+      </div>
+    `;
+    ul.appendChild(li);
+  });
+
+  details.appendChild(ul);
+  container.appendChild(details);
+}
+
+
+
+
+
+
   async function loadPedidos() {
     const { 'ticket.requester.email': email } = await client.get('ticket.requester.email');
       // Solo inyectar el buscador manual si aún no existe

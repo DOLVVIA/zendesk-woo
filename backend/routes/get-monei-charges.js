@@ -46,7 +46,6 @@ router.get('/', async (req, res) => {
                 amount
                 currency
                 createdAt
-                paymentMethod
               }
             }
           }
