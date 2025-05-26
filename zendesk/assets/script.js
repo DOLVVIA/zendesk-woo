@@ -168,6 +168,7 @@ async function loadMoneiCharges(email) {
 // FIN TRANSFERENCIAS DE MONEI //
 
 // REEMBOLSOS MONEI INICIO //
+// REEMBOLSOS MONEI INICIO //
 async function refundMonei(chargeId, amount, panel) {
   try {
     const orderId = panel.dataset.orderId;
@@ -178,12 +179,10 @@ async function refundMonei(chargeId, amount, panel) {
       monei_api_key: SETTINGS.monei_api_key
     };
 
+    // Llamada al endpoint de refund-monei
     const res = await fetch(`${API_BASE}/refund-monei`, {
       method: 'POST',
-      headers: {
-        ...getHeaders(),
-        'x-monei-api-key': SETTINGS.monei_api_key // ✅ AÑADE ESTO AQUÍ
-      },
+      headers: getHeaders(), // sólo Content-Type + x-zendesk-secret
       body: JSON.stringify(payload)
     });
 
@@ -195,6 +194,7 @@ async function refundMonei(chargeId, amount, panel) {
 
     showMessage(panel, `✅ Reembolso MONEI OK (ID: ${refund.id})`);
 
+    // Volver a cargar y renderizar la lista de cargos
     const billing = JSON.parse(panel.dataset.billing);
     const charges = await loadMoneiCharges(billing.email);
     const container = panel.querySelector('.monei-container');
@@ -205,6 +205,8 @@ async function refundMonei(chargeId, amount, panel) {
     showMessage(panel, `Error inesperado: ${e.message}`, 'error');
   }
 }
+// FIN REEMBOLSOS MONEI //
+
 //FIN REEMBOLSOS MONEI//
 
 

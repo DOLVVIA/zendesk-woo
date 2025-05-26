@@ -33,7 +33,7 @@ router.post('/', async (req, res) => {
       path:    url.pathname,
       method:  'POST',
       service: 'execute-api',       // AWS API Gateway usa este servicio
-      region:  'eu-west-1',         // región fija para MONEI
+      region:  'us-east-1',         // región fija para MONEI
       headers: {
         'Content-Type':  'application/json',
         'Authorization': monei_api_key    // <— aquí, igual que en GraphQL
