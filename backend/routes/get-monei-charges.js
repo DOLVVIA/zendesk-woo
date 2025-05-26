@@ -6,6 +6,7 @@ const router = express.Router();
 
 // GET /api/get-monei-charges?email=cliente@ejemplo.com
 // Header: x-monei-api-key: pk_live_xxx
+// Header: x-zendesk-secret: <tu_shared_secret>
 
 router.get('/', async (req, res) => {
   // 1) Validar seguridad con x-zendesk-secret
@@ -22,17 +23,16 @@ router.get('/', async (req, res) => {
   if (!email) {
     return res.status(400).json({ error: 'Falta el parámetro email en query.' });
   }
-
   if (!moneiApiKey) {
     return res.status(400).json({ error: 'Falta x-monei-api-key en headers.' });
   }
 
   try {
     // 4) Llamada segura a la API GraphQL de MONEI
-    const response = await fetch('https://api.monei.com/v1/graphql', {
+    const response = await fetch('https://graphql.monei.com', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${moneiApiKey}`,
+        'Authorization': moneiApiKey,      // Sin prefijo "Bearer "
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
