@@ -49,14 +49,15 @@ router.get('/', async (req, res) => {
       })
     });
 
-    const result = await response.json();
+const result = await response.json();
 
-    if (result.errors) {
-      console.error('Errores de MONEI:', result.errors);
-      return res.status(500).json({ error: 'Error al consultar MONEI', details: result.errors });
-    }
+if (result.errors || !result.data || !result.data.charges) {
+  console.error('❌ Error al consultar MONEI:', result.errors || result);
+  return res.status(500).json({ error: 'Respuesta inválida de MONEI', details: result.errors || result });
+}
 
-    res.json(result.data.charges.items);
+res.json(result.data.charges.items);
+
   } catch (err) {
     console.error('Error al llamar a MONEI:', err);
     res.status(500).json({ error: err.message });
