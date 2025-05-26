@@ -145,6 +145,63 @@ client.on('app.registered', async () => {
   }
   // fin paypal //
 
+  //CARGAMOS TRANSFERENCIAS DE MONEI //
+async function loadMoneiCharges(email) {
+  try {
+    const monei_api_key = SETTINGS.monei_api_key;
+    const url = `${API_BASE}/get-monei-charges?` +
+      `email=${encodeURIComponent(email)}&` +
+      `monei_api_key=${encodeURIComponent(monei_api_key)}`;
+    console.log('🔍 MONEI URL:', url);
+    const res = await fetch(url, { headers: getHeaders() });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  } catch (e) {
+    console.error('❌ loadMoneiCharges:', e);
+    return [];
+  }
+}
+
+// FIN TRANSFERENCIAS DE MONEI //
+
+// REEMBOLSOS MONEI INICIO //
+async function refundMonei(chargeId, amount, panel) {
+  try {
+    const orderId = panel.dataset.orderId;
+    const payload = {
+      orderId,
+      chargeId,
+      amount,
+      monei_api_key: SETTINGS.monei_api_key
+    };
+
+    const res = await fetch(`${API_BASE}/refund-monei`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(payload)
+    });
+
+    const { success, refund, error } = await res.json();
+    if (!success) {
+      showMessage(panel, `❌ Error reembolso: ${error}`, 'error');
+      return;
+    }
+
+    showMessage(panel, `✅ Reembolso MONEI OK (ID: ${refund.id})`);
+
+    const billing = JSON.parse(panel.dataset.billing);
+    const charges = await loadMoneiCharges(billing.email);
+    const container = panel.querySelector('.monei-container');
+    renderMoneiCharges(charges, container, panel);
+
+  } catch (e) {
+    console.error('🛑 Exception en refundMonei:', e);
+    showMessage(panel, `Error inesperado: ${e.message}`, 'error');
+  }
+}
+//FIN REEMBOLSOS MONEI//
+
+
 
 // 1) Hacemos el reembolso en Stripe y Woo, actualizamos solo el bloque de Stripe y colapsamos el panel
 async function refundStripe(chargeId, amount, panel) {
@@ -718,6 +775,15 @@ async function mostrarPedido(pedido) {
     panel.appendChild(paypalContainer);
   }
 
+  {
+  const moneiContainer = document.createElement('div');
+  moneiContainer.className = 'monei-container mt-2 mb-3';
+  const charges = b.email ? await loadMoneiCharges(b.email) : [];
+  renderMoneiCharges(charges, moneiContainer, panel);
+  panel.appendChild(moneiContainer);
+}
+
+
   resultados.appendChild(acc);
   resultados.appendChild(panel);
   ajustarAlto();
@@ -871,6 +937,16 @@ data.pedidos.forEach(pedido => {
           renderPayPalTransactions(txs, paypalContainer, panel);
           panel.appendChild(paypalContainer);
         }
+
+        //sección monei//
+        {
+         const moneiContainer = document.createElement('div');
+         moneiContainer.className = 'monei-container mt-2 mb-3';
+         const charges = b.email ? await loadMoneiCharges(b.email) : [];
+         renderMoneiCharges(charges, moneiContainer, panel);
+         panel.appendChild(moneiContainer);
+       }
+        // fin seccion monei //
 
         // Sección BBVA SEPA-TRANSFER
         {

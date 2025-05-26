@@ -24,6 +24,8 @@ const refundPayPalRoutes         = require('./routes/refund-paypal');
 const bbvaRoutes                 = require('./routes/bbva-transfer');
 const buscarPedidosAvanzadoRoutes = require('./routes/buscar-pedido-avanzado');
 const limpiarCacheRoute = require('./routes/limpiar-cache');
+const getMoneiChargesRoutes       = require('./routes/get-monei-charges');
+const refundMoneiRoutes = require('./routes/refund-monei');
 
 
 const app = express();
@@ -51,6 +53,9 @@ app.use('/api/refund-paypal', refundPayPalRoutes);
 app.use('/api/bbva-transfer', bbvaRoutes);
 app.use('/api/buscar-pedido-avanzado', buscarPedidosAvanzadoRoutes);
 app.use('/api/limpiar-cache', limpiarCacheRoute);
+app.use('/api/get-monei-charges', getMoneiChargesRoutes);
+app.use('/api/refund-monei', refundMoneiRoutes);
+
 
 // Servir frontend estático (si lo necesitas)
 app.use(express.static(path.join(__dirname, '../frontend')));
