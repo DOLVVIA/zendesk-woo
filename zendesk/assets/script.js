@@ -154,7 +154,7 @@ async function loadMoneiCharges(email) {
     const res = await fetch(url, {
       headers: {
         ...getHeaders(),
-        'x-monei-api-key': monei_api_key
+        'x-monei-api-key': monei_api_key // ✅ AQUÍ ESTÁ BIEN
       }
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -180,7 +180,10 @@ async function refundMonei(chargeId, amount, panel) {
 
     const res = await fetch(`${API_BASE}/refund-monei`, {
       method: 'POST',
-      headers: getHeaders(),
+      headers: {
+        ...getHeaders(),
+        'x-monei-api-key': SETTINGS.monei_api_key // ✅ AÑADE ESTO AQUÍ
+      },
       body: JSON.stringify(payload)
     });
 

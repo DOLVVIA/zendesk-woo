@@ -8,16 +8,17 @@ const router = express.Router();
 // Header: x-monei-api-key: pk_live_xxx
 
 router.get('/', async (req, res) => {
-  // 1) Validación de seguridad
+  // 1) Validar seguridad con x-zendesk-secret
   const incomingSecret = req.get('x-zendesk-secret');
   if (!incomingSecret || incomingSecret !== process.env.ZENDESK_SHARED_SECRET) {
     return res.status(401).json({ error: 'Unauthorized: x-zendesk-secret inválido' });
   }
 
-  // 2) Parámetros
+  // 2) Obtener email y API key desde headers seguros
   const { email } = req.query;
   const moneiApiKey = req.get('x-monei-api-key');
 
+  // 3) Validaciones
   if (!email) {
     return res.status(400).json({ error: 'Falta el parámetro email en query.' });
   }
@@ -27,7 +28,7 @@ router.get('/', async (req, res) => {
   }
 
   try {
-    // 3) Llamada a MONEI GraphQL API
+    // 4) Llamada segura a la API GraphQL de MONEI
     const response = await fetch('https://api.monei.com/v1/graphql', {
       method: 'POST',
       headers: {
@@ -55,13 +56,16 @@ router.get('/', async (req, res) => {
 
     const result = await response.json();
 
-    // 4) Validación de respuesta
+    // 5) Verificación robusta de errores
     if (result.errors || !result.data || !result.data.charges) {
-      console.error('❌ Error al consultar MONEI:', result.errors || result);
-      return res.status(500).json({ error: 'Respuesta inválida de MONEI', details: result.errors || result });
+      console.error('❌ Error al consultar MONEI:', JSON.stringify(result, null, 2));
+      return res.status(500).json({
+        error: 'Respuesta inválida de MONEI',
+        details: result.errors || result
+      });
     }
 
-    // 5) Éxito
+    // 6) Enviar cargos al frontend
     res.json(result.data.charges.items);
 
   } catch (err) {
