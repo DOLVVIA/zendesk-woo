@@ -149,11 +149,14 @@ client.on('app.registered', async () => {
 async function loadMoneiCharges(email) {
   try {
     const monei_api_key = SETTINGS.monei_api_key;
-    const url = `${API_BASE}/get-monei-charges?` +
-      `email=${encodeURIComponent(email)}&` +
-      `monei_api_key=${encodeURIComponent(monei_api_key)}`;
+    const url = `${API_BASE}/get-monei-charges?email=${encodeURIComponent(email)}`;
     console.log('🔍 MONEI URL:', url);
-    const res = await fetch(url, { headers: getHeaders() });
+    const res = await fetch(url, {
+      headers: {
+        ...getHeaders(),
+        'x-monei-api-key': monei_api_key
+      }
+    });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json();
   } catch (e) {
