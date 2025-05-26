@@ -35,13 +35,13 @@ router.post('/', async (req, res) => {
       service: 'execute-api',       // AWS API Gateway usa este servicio
       region:  'eu-west-1',         // región fija para MONEI
       headers: {
-        'Content-Type':    'application/json',
-        'x-monei-api-key': monei_api_key
+        'Content-Type':  'application/json',
+        'Authorization': monei_api_key    // <— aquí, igual que en GraphQL
       },
       body: JSON.stringify({ amount })
     };
 
-    // 5) Firmamos con AWS SigV4
+    // 5) Firmamos con AWS SigV4 (añade X-Amz-* y Signature)
     aws4.sign(opts, {
       accessKeyId:     process.env.MONEI_API_ACCESS_KEY,
       secretAccessKey: process.env.MONEI_API_SECRET_KEY
