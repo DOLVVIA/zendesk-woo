@@ -602,18 +602,21 @@ btnCargarPaypal.addEventListener('click', async () => {
 
 
 /**
- * Renderiza la lista de cargos MONEI en el panel
- * @param {Array} charges  — Array de objetos { id, status, amount, currency, createdAt, paymentMethod }
- * @param {HTMLElement} container — div vacío donde inyectar el listado
- * @param {HTMLElement} panel — el panel completo (para data-attrs si quisieras re-render)
+ * Renderiza los cargos de MONEI con botones de reembolso idénticos a Stripe
  */
 function renderMoneiCharges(charges, container, panel) {
-  container.innerHTML = '';              // limpia contenido anterior
+  container.innerHTML = '';
+
+  // Si no hay cargos, mensaje de “no data”
   if (!charges.length) {
-    container.innerHTML = '<p>No hay transacciones MONEI para este cliente.</p>';
+    const p = document.createElement('p');
+    p.className = 'mb-2';
+    p.innerText = 'No hay transacciones MONEI para este cliente.';
+    container.appendChild(p);
     return;
   }
 
+  // <details> principal
   const details = document.createElement('details');
   details.className = 'monei-payments mt-2 mb-3';
 
@@ -626,24 +629,117 @@ function renderMoneiCharges(charges, container, panel) {
   ul.className = 'list-unstyled w-100';
 
   charges.forEach(c => {
-    const fecha  = new Date(c.createdAt).toLocaleString();
-    const importe= (c.amount / 100).toFixed(2);
-    const li     = document.createElement('li');
-    li.className = 'mb-2';
+    // fecha formateada
+    const fecha = new Date(c.createdAt).toLocaleString();
+    const amount = (c.amount / 100).toFixed(2);
+
+    // determina status y clase badge
+    let statusTxt, badgeClass;
+    if (c.status === 'succeeded') {
+      statusTxt  = 'Exitoso';
+      badgeClass = 'success';
+    } else if (c.status === 'refunded') {  // esto puede variar según MONEI
+      statusTxt  = 'Reembolsado';
+      badgeClass = 'success';
+    } else {
+      statusTxt  = c.status.toUpperCase();
+      badgeClass = 'danger';
+    }
+
+    // <li> contenedor de un cargo
+    const li = document.createElement('li');
+    li.className = 'mb-4 w-100';
     li.innerHTML = `
-      <div>
-        <strong>ID:</strong> ${c.id}
-        — <strong>Estado:</strong> ${c.status}
-        — <strong>Importe:</strong> ${importe} ${c.currency}
-        — <strong>Fecha:</strong> ${fecha}
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <div>
+          ID: ${c.id} — ${fecha}
+        </div>
+        <div>
+          <span class="badge badge-${badgeClass}">
+            ${statusTxt}
+          </span>
+        </div>
+      </div>
+      <div class="mb-2">
+        <strong>Importe:</strong> ${amount} ${c.currency}
       </div>
     `;
+
+    // Botón de reembolso completo
+    const btnFull = document.createElement('button');
+    btnFull.type      = 'button';
+    btnFull.innerText = 'Reembolso completo';
+    btnFull.disabled  = (c.status.toLowerCase() !== 'succeeded');  // sólo si aún no está reembolsado
+    btnFull.className = 'btn btn-danger btn-block mb-2';
+    btnFull.addEventListener('click', () => refundMonei(c.id, c.amount, panel));
+    li.appendChild(btnFull);
+
+    // Botón de reembolso parcial
+    const btnPartial = document.createElement('button');
+    btnPartial.type      = 'button';
+    btnPartial.innerText = 'Reembolso parcial';
+    btnPartial.disabled  = (c.status.toLowerCase() !== 'succeeded');
+    btnPartial.className = 'btn btn-warning btn-block mb-2';
+    li.appendChild(btnPartial);
+
+    // Formulario oculto de parcial
+    const form = document.createElement('form');
+    form.className     = 'mt-2 mb-3 w-100';
+    form.style.display = 'none';
+
+    const input = document.createElement('input');
+    input.type        = 'number';
+    input.name        = 'partial';
+    input.step        = '0.01';
+    input.min         = '0.01';
+    input.max         = amount;
+    input.placeholder = `Ej: hasta ${amount}`;
+    input.required    = true;
+    input.className   = 'form-control mb-2';
+    form.appendChild(input);
+
+    const ok = document.createElement('button');
+    ok.type      = 'submit';
+    ok.innerText = '✓ Aceptar';
+    ok.className = 'btn btn-success btn-block mb-2';
+    form.appendChild(ok);
+
+    const cancel = document.createElement('button');
+    cancel.type      = 'button';
+    cancel.innerText = '✖ Cancelar';
+    cancel.className = 'btn btn-danger btn-block';
+    form.appendChild(cancel);
+
+    li.appendChild(form);
+
+    // Mostrar/ocultar el form
+    btnPartial.addEventListener('click', () => {
+      form.style.display       = 'block';
+      btnPartial.style.display = 'none';
+    });
+    cancel.addEventListener('click', () => {
+      form.style.display       = 'none';
+      btnPartial.style.display = 'block';
+      input.value              = '';
+    });
+
+    form.addEventListener('submit', async ev => {
+      ev.preventDefault();
+      const val = parseFloat(input.value.replace(',', '.'));
+      if (isNaN(val) || val <= 0 || val > parseFloat(amount)) {
+        return alert(`Importe inválido (0 < importe ≤ ${amount})`);
+      }
+      const cents = Math.round(val * 100);
+      await refundMonei(c.id, cents, panel);
+    });
+
     ul.appendChild(li);
   });
 
   details.appendChild(ul);
   container.appendChild(details);
 }
+
 
 
 
