@@ -1,7 +1,8 @@
+// backend/routes/refund-monei.js
+
 const express = require('express');
 const fetch   = require('node-fetch');
-
-const router = express.Router();
+const router  = express.Router();
 
 // POST /api/refund-monei
 // Body JSON: { orderId, chargeId, amount, monei_api_key }
@@ -22,23 +23,25 @@ router.post('/', async (req, res) => {
   }
 
   try {
-    // 3) Montamos el Basic Auth
+    // 3) Montamos el Basic Auth (clave+`:` en Base64)
     const basicAuth = Buffer.from(`${monei_api_key}:`).toString('base64');
 
-    // 4) Llamada a MONEI
+    // 4) Llamada a la API de MONEI usando Basic Auth
     const response = await fetch(
       `https://api.monei.com/v1/charges/${chargeId}/refunds`,
       {
         method: 'POST',
         headers: {
           'Authorization': `Basic ${basicAuth}`,
-          'Content-Type': 'application/json'
+          'Content-Type':  'application/json'
         },
-        body: JSON.stringify({ amount })
+        body: JSON.stringify({ amount }) // amount en céntimos
       }
     );
+
     const json = await response.json();
 
+    // 5) Manejo de errores de MONEI
     if (!response.ok) {
       console.error('❌ Error MONEI refund:', json);
       return res
@@ -46,7 +49,7 @@ router.post('/', async (req, res) => {
         .json({ success: false, error: json.message || 'Error desconocido' });
     }
 
-    // 5) Devolver al frontend
+    // 6) Responder al frontend con el objeto refund
     return res.json({ success: true, refund: json });
 
   } catch (err) {
