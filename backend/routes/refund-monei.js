@@ -1,6 +1,5 @@
 // backend/routes/refund-monei.js
 const express = require('express');
-const aws4    = require('aws4');
 const fetch   = require('node-fetch');
 
 const router = express.Router();
@@ -24,35 +23,21 @@ router.post('/', async (req, res) => {
   }
 
   try {
-    // 3) Construir la URL de MONEI
-    const url = new URL(`https://api.monei.com/v1/charges/${chargeId}/refunds`);
+    // 3) Montamos el Basic Auth
+    const basicAuth = Buffer.from(`${monei_api_key}:`).toString('base64');
 
-    // 4) Preparamos la request para aws4.sign
-    const opts = {
-      host:    url.host,
-      path:    url.pathname,
-      method:  'POST',
-      service: 'execute-api',       // AWS API Gateway usa este servicio
-      region:  'us-east-1',         // región fija para MONEI
-      headers: {
-        'Content-Type':  'application/json',
-        'Authorization': monei_api_key    // <— aquí, igual que en GraphQL
-      },
-      body: JSON.stringify({ amount })
-    };
-
-    // 5) Firmamos con AWS SigV4 (añade X-Amz-* y Signature)
-    aws4.sign(opts, {
-      accessKeyId:     process.env.MONEI_API_ACCESS_KEY,
-      secretAccessKey: process.env.MONEI_API_SECRET_KEY
-    });
-
-    // 6) Ejecutamos el fetch con los headers ya firmados
-    const response = await fetch(url.href, {
-      method:  opts.method,
-      headers: opts.headers,
-      body:    opts.body
-    });
+    // 4) Llamada a MONEI
+    const response = await fetch(
+      `https://api.monei.com/v1/charges/${chargeId}/refunds`,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Basic ${basicAuth}`,
+          'Content-Type':  'application/json'
+        },
+        body: JSON.stringify({ amount })
+      }
+    );
 
     const json = await response.json();
     if (!response.ok) {
@@ -62,7 +47,7 @@ router.post('/', async (req, res) => {
         .json({ success: false, error: json.message || 'Error desconocido' });
     }
 
-    // 7) Devolvemos el resultado al frontend
+    // 5) Devolver al frontend
     return res.json({ success: true, refund: json });
 
   } catch (err) {
