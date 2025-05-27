@@ -71,7 +71,7 @@ client.on('app.registered', async () => {
   }
 
 async function loadCities(country = 'ES') {
-  if (citiesList.length) return;
+  citiesList = [];
   try {
     const { woocommerce_url, consumer_key, consumer_secret } = getWooConfig();
     const url = `${API_BASE}/get-ciudades?country=${encodeURIComponent(country)}&` +
