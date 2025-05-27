@@ -770,9 +770,9 @@ btnResetCache.addEventListener('click', async () => {
       headers: getHeaders()
     });
     const json = await res.json();
-    alert(json.message || 'Caché limpiada correctamente.');
+    showMessage(appContainer, json.message || 'Caché limpiada correctamente.');
   } catch (err) {
-    alert('Error al limpiar la caché.');
+    showMessage(appContainer, '❌ Error al limpiar la caché.', 'error');
     console.error('❌ limpiar-cache:', err);
   }
 });
