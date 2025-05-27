@@ -3,17 +3,16 @@ const NodeCache = require('node-cache');
 const router = express.Router();
 const { fetchOrders } = require('../utils/woocommerce');
 
-// Caché de 10 horas (36000 segundos)
 const cache = require('../cache');
 
-
+// GET /api/get-ciudades?country=ES&woocommerce_url=...&consumer_key=...&consumer_secret=...
 router.get('/', async (req, res) => {
   const incomingSecret = req.get('x-zendesk-secret');
   if (!incomingSecret || incomingSecret !== process.env.ZENDESK_SHARED_SECRET) {
     return res.status(401).json({ error: 'Unauthorized: x-zendesk-secret inválido' });
   }
 
-  const { woocommerce_url, consumer_key, consumer_secret } = req.query;
+  const { woocommerce_url, consumer_key, consumer_secret, country } = req.query;
 
   if (!woocommerce_url || !consumer_key || !consumer_secret) {
     return res.status(400).json({
@@ -21,7 +20,8 @@ router.get('/', async (req, res) => {
     });
   }
 
-  const cacheKey = `${woocommerce_url}_ciudades`;
+  const normalizedCountry = (country || 'ES').toUpperCase();
+  const cacheKey = `${woocommerce_url}_ciudades_${normalizedCountry}`;
 
   try {
     const cached = cache.get(cacheKey);
@@ -32,7 +32,12 @@ router.get('/', async (req, res) => {
     const orders = await fetchOrders({ woocommerce_url, consumer_key, consumer_secret });
 
     const cities = Array.from(
-      new Set(orders.map(order => order.billing?.city).filter(Boolean))
+      new Set(
+        orders
+          .filter(order => order.billing?.country?.toUpperCase() === normalizedCountry)
+          .map(order => order.billing?.city)
+          .filter(Boolean)
+      )
     ).sort();
 
     cache.set(cacheKey, cities);

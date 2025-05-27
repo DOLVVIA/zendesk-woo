@@ -70,35 +70,35 @@ client.on('app.registered', async () => {
     }
   }
 
-  async function loadCities() {
-    if (citiesList.length) return;
-    try {
-      const { woocommerce_url, consumer_key, consumer_secret } = getWooConfig();
-      const url = `${API_BASE}/get-ciudades?` +
-        `woocommerce_url=${encodeURIComponent(woocommerce_url)}&` +
-        `consumer_key=${encodeURIComponent(consumer_key)}&` +
-        `consumer_secret=${encodeURIComponent(consumer_secret)}`;
-      const res = await fetch(url, { headers: getHeaders() });
-      citiesList = await res.json();
-    } catch (e) {
-      console.error(e);
-    }
+async function loadCities(country = 'ES') {
+  if (citiesList.length) return;
+  try {
+    const { woocommerce_url, consumer_key, consumer_secret } = getWooConfig();
+    const url = `${API_BASE}/get-ciudades?country=${encodeURIComponent(country)}&` +
+      `woocommerce_url=${encodeURIComponent(woocommerce_url)}&` +
+      `consumer_key=${encodeURIComponent(consumer_key)}&` +
+      `consumer_secret=${encodeURIComponent(consumer_secret)}`;
+    const res = await fetch(url, { headers: getHeaders() });
+    citiesList = await res.json();
+  } catch (e) {
+    console.error(e);
   }
+}
 
-  async function loadProvincias() {
-    if (provincesList.length) return;
-    try {
-      const { woocommerce_url, consumer_key, consumer_secret } = getWooConfig();
-      const url = `${API_BASE}/get-provincias?country=ES&` +
-        `woocommerce_url=${encodeURIComponent(woocommerce_url)}&` +
-        `consumer_key=${encodeURIComponent(consumer_key)}&` +
-        `consumer_secret=${encodeURIComponent(consumer_secret)}`;
-      const res = await fetch(url, { headers: getHeaders() });
-      provincesList = await res.json();
-    } catch (e) {
-      console.error(e);
-    }
+async function loadProvincias(country = 'ES') {
+  if (provincesList.length) return;
+  try {
+    const { woocommerce_url, consumer_key, consumer_secret } = getWooConfig();
+    const url = `${API_BASE}/get-provincias?country=${encodeURIComponent(country)}&` +
+      `woocommerce_url=${encodeURIComponent(woocommerce_url)}&` +
+      `consumer_key=${encodeURIComponent(consumer_key)}&` +
+      `consumer_secret=${encodeURIComponent(consumer_secret)}`;
+    const res = await fetch(url, { headers: getHeaders() });
+    provincesList = await res.json();
+  } catch (e) {
+    console.error(e);
   }
+}
 
   function showMessage(panel, text, type = 'success') {
     const msg = document.createElement('div');
@@ -168,22 +168,21 @@ async function loadMoneiCharges(email) {
 // FIN TRANSFERENCIAS DE MONEI //
 
 // REEMBOLSOS MONEI INICIO //
-// REEMBOLSOS MONEI INICIO //
 async function refundMonei(chargeId, amount, panel) {
   try {
     const orderId = panel.dataset.orderId;
-    const payload = {
-      orderId,
-      chargeId,
-      amount,
-      monei_api_key: SETTINGS.monei_api_key
-    };
+    const payload = { orderId, chargeId, amount };
 
-    // Llamada al endpoint de refund-monei
     const res = await fetch(`${API_BASE}/refund-monei`, {
       method: 'POST',
-      headers: getHeaders(), // sólo Content-Type + x-zendesk-secret
-      body: JSON.stringify(payload)
+      headers: {
+        ...getHeaders(),
+        'Content-Type': 'application/json' // ✅ Solo esta, no Authorization
+      },
+      body: JSON.stringify({ 
+        ...payload,
+        monei_api_key: SETTINGS.monei_api_key // El backend ya montará el Basic Auth
+      })
     });
 
     const { success, refund, error } = await res.json();
@@ -194,7 +193,7 @@ async function refundMonei(chargeId, amount, panel) {
 
     showMessage(panel, `✅ Reembolso MONEI OK (ID: ${refund.id})`);
 
-    // Volver a cargar y renderizar la lista de cargos
+    // Re-renderizar los cargos MONEI
     const billing = JSON.parse(panel.dataset.billing);
     const charges = await loadMoneiCharges(billing.email);
     const container = panel.querySelector('.monei-container');
@@ -205,7 +204,7 @@ async function refundMonei(chargeId, amount, panel) {
     showMessage(panel, `Error inesperado: ${e.message}`, 'error');
   }
 }
-// FIN REEMBOLSOS MONEI //
+
 
 //FIN REEMBOLSOS MONEI//
 
@@ -832,12 +831,15 @@ const res = await fetch(`${API_BASE}/buscar-pedido-avanzado?${params.toString()}
 
   // === INICIO BLOQUE: Función mostrarPedido() ===
 // Esta función renderiza un pedido manualmente igual que en el flujo por email.
-async function mostrarPedido(pedido) {
+  async function mostrarPedido(pedido) {
   const resultados = document.getElementById('resultados');
   resultados.innerHTML = '';
 
-  await loadCities();
-  await loadProvincias();
+  const country = pedido.billing?.country || 'ES';
+  citiesList = [];
+  provincesList = [];
+  await loadCities(country);
+  await loadProvincias(country);
 
   const acc = document.createElement('button');
   acc.className = 'accordion active';
@@ -1310,13 +1312,16 @@ if (e.target.matches('.btn-edit-address')) {
 
   // — Al cambiar el selector, renderizamos campos —
   chooser.onchange = () => {
-    const tipo = chooser.value; // '' | 'facturación' | 'envío'
+    const tipo = chooser.value;
     form.innerHTML = '';
     if (!tipo) {
       form.style.display = 'none';
       return;
     }
-    // Título
+
+    const datos = tipo === 'facturación' ? billing : shipping;
+    const country = datos.country || 'ES';
+
     form.innerHTML += `<h5>Editar ${tipo.charAt(0).toUpperCase()+tipo.slice(1)}</h5>`;
 
     // Campos comunes
@@ -1333,38 +1338,60 @@ if (e.target.matches('.btn-edit-address')) {
           <label>${label}</label>
           <input
             name="${tipo}_${key}"
-            value="${(tipo==='facturación'?billing:shipping)[key]||''}"
+            value="${datos[key]||''}"
             class="form-control"
           />
         </div>`;
     });
 
     // Ciudad
-    form.innerHTML += `
-      <div class="form-group">
-        <label>Ciudad</label>
-        <select name="${tipo}_city" class="form-control">
-          ${citiesList.map(c=>`<option${c===((tipo==='facturación'?billing:shipping).city)?' selected':''}>${c}</option>`).join('')}
-        </select>
-      </div>`;
+if (citiesList.length > 0) {
+  form.innerHTML += `
+    <div class="form-group">
+      <label>Ciudad</label>
+      <select name="${tipo}_city" class="form-control">
+        ${citiesList.map(c => `<option${c === datos.city ? ' selected' : ''}>${c}</option>`).join('')}
+      </select>
+    </div>`;
+} else {
+  form.innerHTML += `
+    <div class="form-group">
+      <label>Ciudad</label>
+      <input name="${tipo}_city" class="form-control" value="${datos.city || ''}" placeholder="Ej: Lisboa" />
+    </div>`;
+}
 
-    // Provincia
-    form.innerHTML += `
-      <div class="form-group">
-        <label>Provincia</label>
-        <select name="${tipo}_state" class="form-control">
-          ${provincesList.map(s=>`<option${s===((tipo==='facturación'?billing:shipping).state)?' selected':''}>${s}</option>`).join('')}
-        </select>
-      </div>`;
+    // Provincia (solo si país ES)
+    if (country === 'ES') {
+      form.innerHTML += `
+        <div class="form-group">
+          <label>Provincia</label>
+          <select name="${tipo}_state" class="form-control">
+            ${provincesList.map(p => `<option${p===datos.state ? ' selected' : ''}>${p}</option>`).join('')}
+          </select>
+        </div>`;
+    } else {
+      // Campo de texto para países como PT donde no hay lista de provincias
+      form.innerHTML += `
+        <div class="form-group">
+          <label>Región / Provincia</label>
+          <input
+            name="${tipo}_state"
+            value="${datos.state || ''}"
+            class="form-control"
+            placeholder="Ej: Lisboa"
+          />
+        </div>`;
+    }
 
-    // Email y Teléfono solo en facturación
-    if (tipo==='facturación') {
+    // Email y Teléfono (solo facturación)
+    if (tipo === 'facturación') {
       form.innerHTML += `
         <div class="form-group">
           <label>Email</label>
           <input
             name="billing_email"
-            value="${billing.email||''}"
+            value="${billing.email || ''}"
             class="form-control"
           />
         </div>
@@ -1372,21 +1399,17 @@ if (e.target.matches('.btn-edit-address')) {
           <label>Teléfono</label>
           <input
             name="billing_phone"
-            value="${billing.phone||''}"
+            value="${billing.phone || ''}"
             class="form-control"
           />
         </div>`;
     }
 
-    // Botones Aceptar / Cancelar
+    // Botones
     form.innerHTML += `
       <div class="d-flex">
-        <button type="button" class="btn btn-success flex-fill mr-2 btn-save-address">
-          ✓ Aceptar
-        </button>
-        <button type="button" class="btn btn-danger flex-fill btn-cancel-address">
-          ✖ Cancelar
-        </button>
+        <button type="button" class="btn btn-success flex-fill mr-2 btn-save-address">✓ Aceptar</button>
+        <button type="button" class="btn btn-danger flex-fill btn-cancel-address">✖ Cancelar</button>
       </div>`;
 
     form.style.display = 'block';
@@ -1400,26 +1423,32 @@ if (e.target.matches('.btn-edit-address')) {
     // Guardar
     form.querySelector('.btn-save-address').onclick = async () => {
       const fd = new FormData(form);
-      const newBilling = tipo==='facturación' ? {
-        first_name: fd.get('facturación_first_name'),
-        last_name:  fd.get('facturación_last_name'),
-        address_1:  fd.get('facturación_address_1'),
-        address_2:  fd.get('facturación_address_2'),
-        postcode:   fd.get('facturación_postcode'),
-        city:       fd.get('facturación_city'),
-        state:      fd.get('facturación_state'),
-        email:      fd.get('billing_email'),
-        phone:      fd.get('billing_phone')
-      } : billing;
-      const newShipping = tipo==='envío' ? {
-        first_name: fd.get('envío_first_name'),
-        last_name:  fd.get('envío_last_name'),
-        address_1:  fd.get('envío_address_1'),
-        address_2:  fd.get('envío_address_2'),
-        postcode:   fd.get('envío_postcode'),
-        city:       fd.get('envío_city'),
-        state:      fd.get('envío_state')
-      } : shipping;
+      let newBilling = billing;
+      let newShipping = shipping;
+
+      if (tipo === 'facturación') {
+        newBilling = {
+          first_name: fd.get('facturación_first_name'),
+          last_name:  fd.get('facturación_last_name'),
+          address_1:  fd.get('facturación_address_1'),
+          address_2:  fd.get('facturación_address_2'),
+          postcode:   fd.get('facturación_postcode'),
+          city:       fd.get('facturación_city'),
+          email:      fd.get('billing_email'),
+          phone:      fd.get('billing_phone'),
+          state:      fd.get('facturación_state') || 'N/A'
+        };
+      } else {
+        newShipping = {
+          first_name: fd.get('envío_first_name'),
+          last_name:  fd.get('envío_last_name'),
+          address_1:  fd.get('envío_address_1'),
+          address_2:  fd.get('envío_address_2'),
+          postcode:   fd.get('envío_postcode'),
+          city:       fd.get('envío_city'),
+          state:      fd.get('envío_state') || 'N/A'
+        };
+      }
 
       const params = new URLSearchParams({
         order_id:  orderId,
@@ -1429,9 +1458,12 @@ if (e.target.matches('.btn-edit-address')) {
         consumer_key,
         consumer_secret
       });
+
       const res = await fetch(`${API_BASE}/editar-direccion?${params}`, {
-        method: 'PUT', headers: getHeaders()
+        method: 'PUT',
+        headers: getHeaders()
       });
+
       if (res.ok) {
         showMessage(panel, 'Dirección actualizada');
         await loadPedidos();
@@ -1439,6 +1471,7 @@ if (e.target.matches('.btn-edit-address')) {
         const err = await res.json();
         showMessage(panel, `Error: ${err.error}`, 'error');
       }
+
       form.style.display = 'none';
       chooser.value = '';
     };
@@ -1447,11 +1480,8 @@ if (e.target.matches('.btn-edit-address')) {
   return;
 }
 
-// 3) Guardar dirección
-if (e.target.matches('.btn-save-address')) {
-  // ya está gestionado en el onclick de arriba
-  return;
-}
+//FIN EDITAR DIRECCIÓN//
+
 
 // 4) Eliminar artículo
 if (e.target.matches('.btn-delete-item')) {
