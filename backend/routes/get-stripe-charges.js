@@ -13,55 +13,42 @@ router.get('/', async (req, res) => {
 
   const { email, stripe_secret_key } = req.query;
 
-  if (!email) {
-    return res.status(400).json({ error: 'Falta el parámetro email en query.' });
-  }
-  if (!stripe_secret_key) {
+  if (!email || !stripe_secret_key) {
     return res.status(400).json({
-      error: 'Falta stripe_secret_key en query para autenticar con Stripe.'
+      error: 'Faltan parámetros: email y stripe_secret_key son obligatorios.'
     });
   }
 
   try {
     const stripe = new Stripe(stripe_secret_key, { apiVersion: '2022-11-15' });
 
-    // Buscar cliente por email
+    // Buscar hasta 100 clientes con ese email
     const customers = await stripe.customers.search({
-      query: `email:"${email}"`,
-      limit: 1
+      query: `email:'${email}'`,
+      limit: 100
     });
 
     if (!customers.data.length) {
-      return res.json([]);
+      return res.json([]); // No hay clientes
     }
 
-    const customerId = customers.data[0].id;
+    const allCharges = [];
 
-    // Paginación para obtener todos los cargos del cliente
-    let charges = [];
-    let hasMore = true;
-    let startingAfter = null;
-
-    while (hasMore && charges.length < 1000) {
-      const response = await stripe.charges.list({
-        customer: customerId,
-        limit: 100,
-        ...(startingAfter ? { starting_after: startingAfter } : {})
+    // Recorrer cada cliente y obtener hasta 100 cargos
+    for (const customer of customers.data) {
+      const charges = await stripe.charges.list({
+        customer: customer.id,
+        limit: 100
       });
-
-      charges.push(...response.data);
-      hasMore = response.has_more;
-      if (response.data.length) {
-        startingAfter = response.data[response.data.length - 1].id;
-      }
+      allCharges.push(...charges.data);
     }
 
-    // Opcional: ordenar por fecha de creación descendente
-    charges.sort((a, b) => b.created - a.created);
+    // Ordenar por fecha descendente
+    allCharges.sort((a, b) => b.created - a.created);
 
-    res.json(charges);
+    res.json(allCharges);
   } catch (err) {
-    console.error('Error al buscar clientes o cargos en Stripe:', err);
+    console.error('Error al obtener cargos de Stripe:', err);
     res.status(500).json({ error: err.message });
   }
 });
