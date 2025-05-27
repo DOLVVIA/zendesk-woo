@@ -388,6 +388,9 @@ function renderStripeCharges(charges, container, panel) {
   details.appendChild(ul);
   container.appendChild(details);
 }
+// fin stripe//
+
+
 
 //refund paypal//
 // 3) Hacer refund en PayPal (completo o parcial)
@@ -829,9 +832,9 @@ const res = await fetch(`${API_BASE}/buscar-pedido-avanzado?${params.toString()}
   }
 
 
-  // === INICIO BLOQUE: Función mostrarPedido() ===
+// === INICIO BLOQUE: Función mostrarPedido() ===
 // Esta función renderiza un pedido manualmente igual que en el flujo por email.
-  async function mostrarPedido(pedido) {
+async function mostrarPedido(pedido) {
   const resultados = document.getElementById('resultados');
   resultados.innerHTML = '';
 
@@ -849,49 +852,54 @@ const res = await fetch(`${API_BASE}/buscar-pedido-avanzado?${params.toString()}
   panel.dataset.orderId = pedido.id;
   panel.className = 'panel';
   panel.style.display = 'block';
-  panel.dataset.billing  = JSON.stringify(pedido.billing  || {});
+  panel.dataset.billing = JSON.stringify(pedido.billing || {});
   panel.dataset.shipping = JSON.stringify(pedido.shipping || {});
 
   const b = pedido.billing || {};
   panel.innerHTML = `
-    <p><strong>Cliente:</strong> ${b.first_name||''} ${b.last_name||''}</p>
-    <p><strong>Email:</strong> ${b.email||''}</p>
-    <p><strong>Teléfono:</strong> ${b.phone||''}</p>
+    <p><strong>Cliente:</strong> ${b.first_name || ''} ${b.last_name || ''}</p>
+    <p><strong>Email:</strong> ${b.email || ''}</p>
+    <p><strong>Teléfono:</strong> ${b.phone || ''}</p>
     <p><strong>Dirección facturación:</strong>
-      ${b.address_1||''} ${b.address_2||''}, ${b.postcode||''} ${b.city||''}, ${b.country||''}
+      ${b.address_1 || ''} ${b.address_2 || ''}, ${b.postcode || ''} ${b.city || ''}, ${b.country || ''}
     </p>
     <hr>
   `;
 
+  const productosContainer = document.createElement('div');
   pedido.line_items.forEach((item, idx) => {
-    panel.innerHTML += `
-      <div class="producto">
-        ${item.image?.src ? `<img src="${item.image.src}" class="producto-img">` : ''}
-        <strong>${item.name}</strong><br>
-        (x${item.quantity})<br>
-        SKU: ${item.sku||'Sin SKU'}<br>
-        Variación: ${item.variation_id||'N/A'}<br>
-        Precio (IVA incl.): ${(parseFloat(item.total) + parseFloat(item.total_tax)).toFixed(2)} €
-      </div>
+    const prod = document.createElement('div');
+    prod.className = 'producto';
+    prod.innerHTML = `
+      ${item.image?.src ? `<img src="${item.image.src}" class="producto-img">` : ''}
+      <strong>${item.name}</strong><br>
+      (x${item.quantity})<br>
+      SKU: ${item.sku || 'Sin SKU'}<br>
+      Variación: ${item.variation_id || 'N/A'}<br>
+      Precio (IVA incl.): ${(parseFloat(item.total) + parseFloat(item.total_tax)).toFixed(2)} €
     `;
+
     const btnEdit = document.createElement('button');
     btnEdit.className = 'btn-edit-item';
-    btnEdit.dataset.orderId     = pedido.id;
-    btnEdit.dataset.index       = idx;
-    btnEdit.dataset.productId   = item.product_id;
-    btnEdit.dataset.variationId = item.variation_id||'';
-    btnEdit.dataset.quantity    = item.quantity;
-    btnEdit.dataset.total       = item.total;
+    btnEdit.dataset.orderId = pedido.id;
+    btnEdit.dataset.index = idx;
+    btnEdit.dataset.productId = item.product_id;
+    btnEdit.dataset.variationId = item.variation_id || '';
+    btnEdit.dataset.quantity = item.quantity;
+    btnEdit.dataset.total = item.total;
     btnEdit.innerText = 'Editar talla/cantidad';
-    panel.appendChild(btnEdit);
+    prod.appendChild(btnEdit);
 
     const btnDel = document.createElement('button');
     btnDel.className = 'btn-delete-item';
     btnDel.dataset.orderId = pedido.id;
-    btnDel.dataset.index   = idx;
+    btnDel.dataset.index = idx;
     btnDel.innerText = 'Eliminar artículo';
-    panel.appendChild(btnDel);
+    prod.appendChild(btnDel);
+
+    productosContainer.appendChild(prod);
   });
+  panel.appendChild(productosContainer);
 
   const btnAdd = document.createElement('button');
   btnAdd.className = 'btn-add-item';
@@ -899,12 +907,10 @@ const res = await fetch(`${API_BASE}/buscar-pedido-avanzado?${params.toString()}
   btnAdd.innerText = 'Añadir artículo';
   panel.appendChild(btnAdd);
 
-  ///
-
   const btnStatus = document.createElement('button');
   btnStatus.className = 'btn-change-status';
   btnStatus.dataset.orderId = pedido.id;
-  btnStatus.dataset.status  = pedido.status;
+  btnStatus.dataset.status = pedido.status;
   btnStatus.innerText = 'Cambiar estado';
   panel.appendChild(btnStatus);
 
@@ -931,13 +937,12 @@ const res = await fetch(`${API_BASE}/buscar-pedido-avanzado?${params.toString()}
   }
 
   {
-  const moneiContainer = document.createElement('div');
-  moneiContainer.className = 'monei-container mt-2 mb-3';
-  const charges = b.email ? await loadMoneiCharges(b.email) : [];
-  renderMoneiCharges(charges, moneiContainer, panel);
-  panel.appendChild(moneiContainer);
-}
-
+    const moneiContainer = document.createElement('div');
+    moneiContainer.className = 'monei-container mt-2 mb-3';
+    const charges = b.email ? await loadMoneiCharges(b.email) : [];
+    renderMoneiCharges(charges, moneiContainer, panel);
+    panel.appendChild(moneiContainer);
+  }
 
   resultados.appendChild(acc);
   resultados.appendChild(panel);
@@ -1344,34 +1349,43 @@ if (e.target.matches('.btn-edit-address')) {
         </div>`;
     });
 
-    // Ciudad
-if (citiesList.length > 0) {
-  form.innerHTML += `
-    <div class="form-group">
-      <label>Ciudad</label>
-      <select name="${tipo}_city" class="form-control">
-        ${citiesList.map(c => `<option${c === datos.city ? ' selected' : ''}>${c}</option>`).join('')}
-      </select>
-    </div>`;
-} else {
-  form.innerHTML += `
-    <div class="form-group">
-      <label>Ciudad</label>
-      <input name="${tipo}_city" class="form-control" value="${datos.city || ''}" placeholder="Ej: Lisboa" />
-    </div>`;
-}
+    // CIUDAD
+    const ciudadNormalizada = (datos.city || '').trim().toLowerCase();
+    const ciudadEnLista = citiesList.some(c => c.trim().toLowerCase() === ciudadNormalizada);
 
-    // Provincia (solo si país ES)
-    if (country === 'ES') {
+    if (citiesList.length > 0 && ciudadEnLista) {
+      form.innerHTML += `
+        <div class="form-group">
+          <label>Ciudad</label>
+          <select name="${tipo}_city" class="form-control">
+            ${citiesList.map(c =>
+              `<option${c.trim().toLowerCase() === ciudadNormalizada ? ' selected' : ''}>${c}</option>`
+            ).join('')}
+          </select>
+        </div>`;
+    } else {
+      form.innerHTML += `
+        <div class="form-group">
+          <label>Ciudad</label>
+          <input name="${tipo}_city" class="form-control" value="${datos.city || ''}" placeholder="Ej: Lisboa" />
+        </div>`;
+    }
+
+    // PROVINCIA
+    const stateNormalizada = (datos.state || '').trim().toLowerCase();
+    const stateEnLista = provincesList.some(p => p.trim().toLowerCase() === stateNormalizada);
+
+    if (country === 'ES' && provincesList.length > 0 && stateEnLista) {
       form.innerHTML += `
         <div class="form-group">
           <label>Provincia</label>
           <select name="${tipo}_state" class="form-control">
-            ${provincesList.map(p => `<option${p===datos.state ? ' selected' : ''}>${p}</option>`).join('')}
+            ${provincesList.map(p =>
+              `<option${p.trim().toLowerCase() === stateNormalizada ? ' selected' : ''}>${p}</option>`
+            ).join('')}
           </select>
         </div>`;
     } else {
-      // Campo de texto para países como PT donde no hay lista de provincias
       form.innerHTML += `
         <div class="form-group">
           <label>Región / Provincia</label>
@@ -1384,7 +1398,7 @@ if (citiesList.length > 0) {
         </div>`;
     }
 
-    // Email y Teléfono (solo facturación)
+    // Email y Teléfono solo facturación
     if (tipo === 'facturación') {
       form.innerHTML += `
         <div class="form-group">
@@ -1452,8 +1466,9 @@ if (citiesList.length > 0) {
 
       const params = new URLSearchParams({
         order_id:  orderId,
-        billing:   encodeURIComponent(JSON.stringify(newBilling)),
-        shipping:  encodeURIComponent(JSON.stringify(newShipping)),
+        billing:   JSON.stringify(newBilling),
+        shipping:  JSON.stringify(newShipping),
+
         woocommerce_url,
         consumer_key,
         consumer_secret
@@ -1479,8 +1494,8 @@ if (citiesList.length > 0) {
 
   return;
 }
+//FIN EDITAR DIRECCIÓN
 
-//FIN EDITAR DIRECCIÓN//
 
 
 // 4) Eliminar artículo
