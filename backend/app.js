@@ -31,7 +31,11 @@ const refundMoneiRoutes = require('./routes/refund-monei');
 const app = express();
 
 // Middlewares
-app.use(cors());
+app.use(cors({
+  origin: '*', // o pon tu dominio de Zendesk si quieres restringir más
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'x_zendesk_secret']
+}));
 app.use(express.json());
 
 // Rutas de API
