@@ -5,7 +5,46 @@ const express = require('express');
 const cors    = require('cors');
 const path    = require('path');
 
-// Importación de rutas
+const app = express();
+
+// 1) Cabeceras CORS para todas las rutas
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin',  '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    'Content-Type, x-zendesk-secret'
+  );
+  next();
+});
+app.use(cors({
+  origin: '*',
+  methods: ['GET','POST','PUT','DELETE','OPTIONS'],
+  allowedHeaders: ['Content-Type','x-zendesk-secret'],
+}));
+
+// 2) Saltar validación de secret en el preflight (OPTIONS)
+app.use((req, res, next) => {
+  if (req.method === 'OPTIONS') {
+    return next();
+  }
+  const expected = process.env.ZENDESK_SHARED_SECRET;
+  const provided = req.headers['x-zendesk-secret'];
+  if (!expected || provided !== expected) {
+    return res.status(403).json({ error: 'Forbidden: cabecera x-zendesk-secret inválida' });
+  }
+  next();
+});
+
+// 3) Body parser
+app.use(express.json());
+
+// 4) Tu ruta de ping (para probar)
+app.get(['/api/ping','/ping'], (req, res) => {
+  res.json({ status: 'ok', mensaje: 'Railway responde correctamente 🚀' });
+});
+
+// 5) Importar todos tus routers
 const buscarPedidosRoute           = require('./routes/orders');
 const editarDireccionRoutes        = require('./routes/editar-ruta');
 const getVariacionesRoutes         = require('./routes/get-variaciones');
@@ -27,70 +66,38 @@ const limpiarCacheRoute            = require('./routes/limpiar-cache');
 const getMoneiChargesRoutes        = require('./routes/get-monei-charges');
 const refundMoneiRoutes            = require('./routes/refund-monei');
 
-const app = express();
-
-// ─── 1) CORS ────────────────────────────────────────────────────────────────
-// Permitimos el header x-zendesk-secret (y mantengo tu cors original para que no falte nada)
-app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin',  '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader(
-    'Access-Control-Allow-Headers',
-    'Content-Type, x-zendesk-secret'
-  );
-  next();
-});
-app.use(cors({
-  origin: '*',
-  methods: ['GET','POST','PUT','DELETE','OPTIONS'],
-  allowedHeaders: ['Content-Type','x-zendesk-secret'],
-}));
-
-// ─── 2) Parseo de JSON ─────────────────────────────────────────────────────
-app.use(express.json());
-
-// ─── 3) Validación de la cabecera secreta ──────────────────────────────────
-app.use((req, res, next) => {
-  const expected = process.env.ZENDESK_SHARED_SECRET;
-  const provided = req.headers['x-zendesk-secret'];
-  if (!expected || provided !== expected) {
-    return res.status(403).json({ error: 'Forbidden: cabecera x-zendesk-secret inválida' });
-  }
-  next();
+// 6) Montar cada ruta con y sin prefijo /api para que tu script siga funcionando sin cambios
+[
+  ['buscar-pedidos',           buscarPedidosRoute],
+  ['editar-direccion',         editarDireccionRoutes],
+  ['get-variaciones',          getVariacionesRoutes],
+  ['editar-item',              editarItemRoutes],
+  ['cambiar-estado',           cambiarEstadoRoutes],
+  ['get-estados',              getEstadosRoutes],
+  ['eliminar-item',            eliminarItemRoutes],
+  ['anadir-item',              anadirItemRoutes],
+  ['get-productos',            getProductosRoutes],
+  ['get-ciudades',             getCiudadesRoutes],
+  ['get-provincias',           getProvinciasRoutes],
+  ['get-stripe-charges',       getStripeChargesRoutes],
+  ['refund-stripe',            refundStripeRoutes],
+  ['get-paypal-transactions',  getPayPalTransactionsRoutes],
+  ['refund-paypal',            refundPayPalRoutes],
+  ['bbva-transfer',            bbvaRoutes],
+  ['buscar-pedido-avanzado',   buscarPedidosAvanzadoRoutes],
+  ['limpiar-cache',            limpiarCacheRoute],
+  ['get-monei-charges',        getMoneiChargesRoutes],
+  ['refund-monei',             refundMoneiRoutes],
+].forEach(([routePath, router]) => {
+  app.use(`/api/${routePath}`, router);
+  app.use(`/${routePath}`,     router);
 });
 
-// ─── 4) Ruta de prueba ──────────────────────────────────────────────────────
-app.get('/api/ping', (req, res) => {
-  res.json({ status: 'ok', mensaje: 'Railway responde correctamente 🚀' });
-});
-
-// ─── 5) Rutas de API ────────────────────────────────────────────────────────
-app.use('/api/buscar-pedidos',           buscarPedidosRoute);
-app.use('/api/editar-direccion',         editarDireccionRoutes);
-app.use('/api/get-variaciones',          getVariacionesRoutes);
-app.use('/api/editar-item',              editarItemRoutes);
-app.use('/api/cambiar-estado',           cambiarEstadoRoutes);
-app.use('/api/get-estados',              getEstadosRoutes);
-app.use('/api/eliminar-item',            eliminarItemRoutes);
-app.use('/api/anadir-item',              anadirItemRoutes);
-app.use('/api/get-productos',            getProductosRoutes);
-app.use('/api/get-ciudades',             getCiudadesRoutes);
-app.use('/api/get-provincias',           getProvinciasRoutes);
-app.use('/api/get-stripe-charges',       getStripeChargesRoutes);
-app.use('/api/refund-stripe',            refundStripeRoutes);
-app.use('/api/get-paypal-transactions',  getPayPalTransactionsRoutes);
-app.use('/api/refund-paypal',            refundPayPalRoutes);
-app.use('/api/bbva-transfer',            bbvaRoutes);
-app.use('/api/buscar-pedido-avanzado',   buscarPedidosAvanzadoRoutes);
-app.use('/api/limpiar-cache',            limpiarCacheRoute);
-app.use('/api/get-monei-charges',        getMoneiChargesRoutes);
-app.use('/api/refund-monei',             refundMoneiRoutes);
-
-// ─── 6) Frontend estático ──────────────────────────────────────────────────
+// 7) Servir tu frontend estático si lo usas
 app.use(express.static(path.join(__dirname, '../frontend')));
 
-// ─── 7) Levantar servidor ──────────────────────────────────────────────────
+// 8) Levantar servidor
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`Servidor corriendo en http://0.0.0.0:${PORT}`);
 });
