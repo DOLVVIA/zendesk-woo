@@ -5,38 +5,39 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 
-// Importación de rutas
-const buscarPedidosRoute         = require('./routes/orders');
-const editarDireccionRoutes      = require('./routes/editar-ruta');
-const getVariacionesRoutes       = require('./routes/get-variaciones');
-const editarItemRoutes           = require('./routes/editar-item');
-const cambiarEstadoRoutes        = require('./routes/cambiar-estado');
-const getEstadosRoutes           = require('./routes/get-estados');
-const eliminarItemRoutes         = require('./routes/eliminar-item');
-const anadirItemRoutes           = require('./routes/anadir-item');
-const getProductosRoutes         = require('./routes/get-productos');
-const getCiudadesRoutes          = require('./routes/get-ciudades');
-const getProvinciasRoutes        = require('./routes/get-provincias');
-const getStripeChargesRoutes     = require('./routes/get-stripe-charges');
-const refundStripeRoutes         = require('./routes/refund-stripe');
-const getPayPalTransactionsRoutes= require('./routes/get-paypal-transactions');
-const refundPayPalRoutes         = require('./routes/refund-paypal');
-const bbvaRoutes                 = require('./routes/bbva-transfer');
-const buscarPedidosAvanzadoRoutes = require('./routes/buscar-pedido-avanzado');
-const limpiarCacheRoute = require('./routes/limpiar-cache');
-const getMoneiChargesRoutes       = require('./routes/get-monei-charges');
-const refundMoneiRoutes = require('./routes/refund-monei');
-
-
 const app = express();
 
-// Middlewares
+// ✅ Configuración completa de CORS
 app.use(cors({
-  origin: '*', // o pon tu dominio de Zendesk si quieres restringir más
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'x_zendesk_secret']
+  origin: '*', // Puedes poner aquí 'https://dolvviasl.zendesk.com' si quieres limitarlo
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'x_zendesk_secret'],
+  credentials: true
 }));
+
 app.use(express.json());
+
+// Importación de rutas
+const buscarPedidosRoute          = require('./routes/orders');
+const editarDireccionRoutes       = require('./routes/editar-ruta');
+const getVariacionesRoutes        = require('./routes/get-variaciones');
+const editarItemRoutes            = require('./routes/editar-item');
+const cambiarEstadoRoutes         = require('./routes/cambiar-estado');
+const getEstadosRoutes            = require('./routes/get-estados');
+const eliminarItemRoutes          = require('./routes/eliminar-item');
+const anadirItemRoutes            = require('./routes/anadir-item');
+const getProductosRoutes          = require('./routes/get-productos');
+const getCiudadesRoutes           = require('./routes/get-ciudades');
+const getProvinciasRoutes         = require('./routes/get-provincias');
+const getStripeChargesRoutes      = require('./routes/get-stripe-charges');
+const refundStripeRoutes          = require('./routes/refund-stripe');
+const getPayPalTransactionsRoutes = require('./routes/get-paypal-transactions');
+const refundPayPalRoutes          = require('./routes/refund-paypal');
+const bbvaRoutes                  = require('./routes/bbva-transfer');
+const buscarPedidosAvanzadoRoutes = require('./routes/buscar-pedido-avanzado');
+const limpiarCacheRoute           = require('./routes/limpiar-cache');
+const getMoneiChargesRoutes       = require('./routes/get-monei-charges');
+const refundMoneiRoutes           = require('./routes/refund-monei');
 
 // Rutas de API
 app.use('/api/buscar-pedidos', buscarPedidosRoute);        
@@ -59,7 +60,6 @@ app.use('/api/buscar-pedido-avanzado', buscarPedidosAvanzadoRoutes);
 app.use('/api/limpiar-cache', limpiarCacheRoute);
 app.use('/api/get-monei-charges', getMoneiChargesRoutes);
 app.use('/api/refund-monei', refundMoneiRoutes);
-
 
 // Servir frontend estático (si lo necesitas)
 app.use(express.static(path.join(__dirname, '../frontend')));
