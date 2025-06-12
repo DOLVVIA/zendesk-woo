@@ -3,8 +3,7 @@ const client = ZAFClient.init();
 
 client.on('app.registered', async () => {
   const { settings: SETTINGS } = await client.metadata();
-  const API_BASE = 'https://zendesk-woo.onrender.com/api';
-
+  const API_BASE = 'https://zendesk-woo-production.up.railway.app';
   function getHeaders() {
     return {
       'Content-Type': 'application/json',
@@ -286,7 +285,7 @@ function renderStripeCharges(charges, container, panel) {
 
   charges.forEach(c => {
     const fecha    = new Date(c.created * 1000).toLocaleString();
-    const title    = `${c.metadata?.products || c.description || c.id} (${fecha})`;
+    const title = `Pedido #${c.metadata?.order_id || '¿?'} – ${c.metadata?.products || c.description || c.id} (${fecha})`;
     const amount   = (c.amount / 100).toFixed(2);
     const refunded = (c.amount_refunded || 0) / 100;
     const isFull   = c.amount_refunded === c.amount;

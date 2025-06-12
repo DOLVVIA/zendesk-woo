@@ -29,7 +29,7 @@
     "styles.css":  "assets/styles.css"
   },
   "proxy": {
-    "origin": "https://zendesk-woo.onrender.com",
+    "origin": "https://zendesk-woo-production.up.railway.app",
     "prefix": "/api"
   },
   "parameters": [
@@ -81,12 +81,6 @@
       "required": false,
       "secure": false,
       "default": "live"
-    },
-      {
-    "name": "monei_api_key",
-    "type": "text",
-    "required": true,
-    "secure": false
-  }
+    }
   ]
 }
