@@ -1,6 +1,4 @@
 // backend/app.js
-// probando redeploy
-
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -8,15 +6,28 @@ const path = require('path');
 
 const app = express();
 
-// ✅ Configuración completa de CORS
+// ✅ Middleware CORS manual para asegurar compatibilidad con Zendesk
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*'); // o tu dominio de Zendesk si lo prefieres
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x_zendesk_secret');
+  next();
+});
+
+// ✅ Middleware oficial CORS
 app.use(cors({
-  origin: '*', // Puedes poner aquí 'https://dolvviasl.zendesk.com' si quieres limitarlo
+  origin: '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'x_zendesk_secret'],
   credentials: true
 }));
 
 app.use(express.json());
+
+// ✅ Ruta de test para confirmar que el backend responde
+app.get('/api/ping', (req, res) => {
+  res.json({ status: 'ok', mensaje: 'Railway responde correctamente 🚀' });
+});
 
 // Importación de rutas
 const buscarPedidosRoute          = require('./routes/orders');
@@ -70,4 +81,3 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Servidor corriendo en http://0.0.0.0:${PORT}`);
 });
-
