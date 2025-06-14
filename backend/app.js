@@ -2,28 +2,21 @@
 
 require('dotenv').config();
 const express = require('express');
-const cors    = require('cors');
-const path    = require('path');
+const cors = require('cors');
+const path = require('path');
 
 const app = express();
 
-// 1) CORS para todas las rutas
-app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin',  '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,x-zendesk-secret');
-  next();
-});
+// 1) CORS configurado correctamente
 app.use(cors({
-  origin: '*',
-  methods: ['GET','POST','PUT','DELETE','OPTIONS'],
-  allowedHeaders: ['Content-Type','x-zendesk-secret'],
+  origin: 'https://dolviasi.zendesk.com',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'x-zendesk-secret']
 }));
 
 // 2) Saltar validación de secret en preflight OPTIONS
 app.use((req, res, next) => {
   if (req.method === 'OPTIONS') {
-    // No validamos secret en preflight
     return next();
   }
   const expected = process.env.ZENDESK_SHARED_SECRET;
@@ -88,7 +81,7 @@ const refundMoneiRoutes            = require('./routes/refund-monei');
   ['refund-monei',             refundMoneiRoutes],
 ].forEach(([route, router]) => {
   app.use(`/api/${route}`, router);
-  app.use(`/${route}`,        router);
+  app.use(`/${route}`, router);
 });
 
 // 7) Servir frontend estático (si aplica)
