@@ -25,7 +25,7 @@ app.use(cors({
 // 3) Saltar validación de secret en preflight OPTIONS
 app.use((req, res, next) => {
   if (req.method === 'OPTIONS') {
-    return next();
+    return next(); // no validamos el secret en OPTIONS
   }
   const expected = process.env.ZENDESK_SHARED_SECRET;
   const provided = req.get('x-zendesk-secret');
