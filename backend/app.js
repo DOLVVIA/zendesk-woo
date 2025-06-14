@@ -7,14 +7,22 @@ const path = require('path');
 
 const app = express();
 
-// 1) CORS configurado correctamente
+// 1) RESPONDER manualmente las solicitudes OPTIONS (preflight)
+app.options('*', (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', 'https://dolviasi.zendesk.com');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,x-zendesk-secret');
+  res.sendStatus(200);
+});
+
+// 2) Middleware CORS
 app.use(cors({
   origin: 'https://dolviasi.zendesk.com',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'x-zendesk-secret']
 }));
 
-// 2) Saltar validación de secret en preflight OPTIONS
+// 3) Saltar validación de secret en preflight OPTIONS
 app.use((req, res, next) => {
   if (req.method === 'OPTIONS') {
     return next();
@@ -27,15 +35,15 @@ app.use((req, res, next) => {
   next();
 });
 
-// 3) JSON parser
+// 4) JSON parser
 app.use(express.json());
 
-// 4) Ruta de prueba
+// 5) Ruta de prueba
 app.get(['/api/ping', '/ping'], (req, res) => {
   res.json({ status: 'ok', mensaje: 'Railway responde correctamente 🚀' });
 });
 
-// 5) Importar routers
+// 6) Importar routers
 const buscarPedidosRoute           = require('./routes/orders');
 const editarDireccionRoutes        = require('./routes/editar-ruta');
 const getVariacionesRoutes         = require('./routes/get-variaciones');
@@ -57,7 +65,7 @@ const limpiarCacheRoute            = require('./routes/limpiar-cache');
 const getMoneiChargesRoutes        = require('./routes/get-monei-charges');
 const refundMoneiRoutes            = require('./routes/refund-monei');
 
-// 6) Montar rutas con y sin `/api`
+// 7) Montar rutas con y sin `/api`
 [
   ['buscar-pedidos',           buscarPedidosRoute],
   ['editar-direccion',         editarDireccionRoutes],
@@ -84,10 +92,10 @@ const refundMoneiRoutes            = require('./routes/refund-monei');
   app.use(`/${route}`, router);
 });
 
-// 7) Servir frontend estático (si aplica)
+// 8) Servir frontend estático (si aplica)
 app.use(express.static(path.join(__dirname, '../frontend')));
 
-// 8) Levantar servidor usando el puerto que dé Railway
+// 9) Levantar servidor
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Servidor corriendo en http://0.0.0.0:${PORT}`);
