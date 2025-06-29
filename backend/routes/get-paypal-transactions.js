@@ -1,5 +1,6 @@
+// routes/paypal-transactions.js
 const express = require('express');
-const fetch   = require('node-fetch'); // v2
+const fetch   = require('node-fetch'); // npm install node-fetch@2
 const router  = express.Router();
 
 const cache = new Map();
@@ -13,7 +14,7 @@ router.get('/', async (req, res) => {
     return res.status(401).json({ error: 'Unauthorized: x-zendesk-secret inválido' });
   }
 
-  // --- Query params ---
+  // --- Parámetros ---
   const {
     paypal_client_id: clientId,
     paypal_secret:    clientSecret,
@@ -36,15 +37,15 @@ router.get('/', async (req, res) => {
     return res.status(400).json({ error: 'Faltan parámetros obligatorios' });
   }
 
-  // --- Cache simple 5m ---
+  // --- Cache 5 min ---
   const cacheKey = `${order_id}|${email}|${mode}`;
   const cached   = cache.get(cacheKey);
-  if (cached && Date.now() - cached.timestamp < 300_000) {
+  if (cached && Date.now() - cached.timestamp < 5 * 60 * 1000) {
     console.log('🚀 Respondiendo desde cache');
     return res.json(cached.data);
   }
 
-  // --- Prep URLs PayPal ---
+  // --- URLs base PayPal ---
   const baseUrl = mode === 'live'
     ? 'https://api-m.paypal.com'
     : 'https://api-m.sandbox.paypal.com';
@@ -69,7 +70,7 @@ router.get('/', async (req, res) => {
     return res.status(500).json({ error: 'Error autenticando en PayPal' });
   }
 
-  // 2) Comprobar que el pedido existe en WooCommerce
+  // 2) Verificar pedido WooCommerce
   try {
     const wcRes = await fetch(
       `${woocommerce_url}/wp-json/wc/v3/orders/${order_id}` +
@@ -81,23 +82,24 @@ router.get('/', async (req, res) => {
     return res.status(500).json({ error: 'Pedido WooCommerce no encontrado' });
   }
 
-  // 3) Traer transacciones por bloques de 30 días (máximo permitido por PayPal es 31 días)
+  // 3) Traer transacciones por bloques de 31 días (90 días atrás)
   const perPage = 100;
+  const nowMs   = Date.now();
+  const startMs = nowMs - 90 * 24 * 60 * 60 * 1000;
+  let allTxs    = [];
 
-  const toPayPalDate = (date) =>
-    new Date(date).toISOString().replace(/\.\d{3}Z$/, 'Z');
+  const toPayPalDate = ms => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
 
-  const now   = Date.now();
-  const start = now - 90 * 24 * 60 * 60 * 1000;
-
-  let allTxs = [];
-
-  for (let chunkStart = start; chunkStart < now; chunkStart += 30 * 24 * 60 * 60 * 1000) {
-    const chunkEnd = Math.min(chunkStart + 30 * 24 * 60 * 60 * 1000, now);
+  for (
+    let chunkStart = startMs;
+    chunkStart < nowMs;
+    chunkStart += 31 * 24 * 60 * 60 * 1000
+  ) {
+    const chunkEnd = Math.min(chunkStart + 31 * 24 * 60 * 60 * 1000, nowMs);
     const startDate = toPayPalDate(chunkStart);
     const endDate   = toPayPalDate(chunkEnd);
 
-    let page = 1;
+    let page       = 1;
     let totalPages = 1;
 
     try {
@@ -107,21 +109,20 @@ router.get('/', async (req, res) => {
           + `&end_date=${encodeURIComponent(endDate)}`
           + `&page_size=${perPage}`
           + `&page=${page}`
+          + `&transaction_status=S`
           + `&fields=all`;
 
-        const txRes = await fetch(url, {
+        const txRes  = await fetch(url, {
           headers: { 'Authorization': `Bearer ${accessToken}` }
         });
-
         const txJson = await txRes.json();
-
         if (!txRes.ok) {
-          console.error('❌ Respuesta PayPal:', txJson);
+          console.error('❌ PayPal responde error:', txJson);
           throw new Error(`PayPal API ${txRes.status}`);
         }
 
         totalPages = txJson.pagination_info?.total_pages || 1;
-        allTxs = allTxs.concat(txJson.transaction_details || []);
+        allTxs     = allTxs.concat(txJson.transaction_details || []);
         page++;
       } while (page <= totalPages);
     } catch (err) {
@@ -130,7 +131,7 @@ router.get('/', async (req, res) => {
     }
   }
 
-  // 4) Filtrar por email, ordenar desc y formatear
+  // 4) Filtrar por email, ordenar y formatear
   const output = allTxs
     .filter(t =>
       t.payer_info?.email_address?.toLowerCase() === email
@@ -140,19 +141,19 @@ router.get('/', async (req, res) => {
       - new Date(a.transaction_info.transaction_initiation_date)
     )
     .map(t => ({
-      id:           t.transaction_info.transaction_id,
-      status:       t.transaction_info.transaction_status,
+      id:               t.transaction_info.transaction_id,
+      status:           t.transaction_info.transaction_status,
       amount: {
         value:         parseFloat(t.transaction_info.transaction_amount.value).toFixed(2),
         currency_code: t.transaction_info.transaction_amount.currency_code
       },
-      refunded_amount: t.transaction_info.transaction_amount.value_refunded || '0.00',
-      is_refunded:      t.transaction_info.transaction_status === 'REFUNDED',
+      refunded_amount:  t.transaction_info.transaction_amount.value_refunded || '0.00',
+      is_refunded:       t.transaction_info.transaction_status === 'REFUNDED',
       payer_email:      t.payer_info?.email_address || null,
       date:             t.transaction_info.transaction_initiation_date
     }));
 
-  // 5) Cache y respuesta
+  // 5) Cache y enviar
   cache.set(cacheKey, { timestamp: Date.now(), data: output });
   console.log(`✅ /get-paypal-transactions → ${output.length} txs`);
   res.json(output);
