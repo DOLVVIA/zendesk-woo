@@ -117,6 +117,7 @@ client.on('app.registered', async () => {
         `stripe_secret_key=${encodeURIComponent(stripe_secret_key)}`;
       console.log('🔍 Stripe URL:', url);
       const res = await fetch(url, { headers: getHeaders() });
+
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return await res.json();
     } catch (e) {
@@ -125,27 +126,30 @@ client.on('app.registered', async () => {
     }
   }
 
-// Carga las transacciones de PayPal para un email y pedido dados
-async function loadPayPalTransactions(email, orderId, orderDate) {
-  try {
-    const { paypal_client_id, paypal_secret, paypal_mode } = getPayPalConfig();
-    const url = `${API_BASE}/get-paypal-transactions?` +
-      `email=${encodeURIComponent(email)}` +
-      `&order_id=${encodeURIComponent(orderId)}` +
-      `&order_date=${encodeURIComponent(orderDate)}` +
-      `&paypal_client_id=${encodeURIComponent(paypal_client_id)}` +
-      `&paypal_secret=${encodeURIComponent(paypal_secret)}` +
-      `&paypal_mode=${encodeURIComponent(paypal_mode)}`;
-    console.log('🔍 PayPal URL:', url);
-    const res = await fetch(url, { headers: getHeaders() });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return await res.json();
-  } catch (e) {
-    console.error('❌ loadPayPalTransactions:', e);
-    return [];
-  }
+///paypall
+
+async function loadPayPalTransactions(email, orderId) {
+  const { paypal_client_id, paypal_secret, paypal_mode } = getPayPalConfig();
+  const { woocommerce_url, consumer_key, consumer_secret } = getWooConfig();
+  const params = new URLSearchParams({
+    email,
+    order_id: orderId,
+    paypal_client_id,
+    paypal_secret,
+    paypal_mode,
+    woocommerce_url,
+    consumer_key,
+    consumer_secret
+  });
+  const url = `${API_BASE}/get-paypal-transactions?${params}`;
+  console.log('🔍 PayPal URL:', url);
+  const res = await fetch(url, { headers: getHeaders() });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
 }
-// fin paypal //
+
+//paypal
+
 
 
 
@@ -738,13 +742,22 @@ async function mostrarPedido(pedido) {
     panel.appendChild(stripeContainer);
   }
 
-  {
-    const paypalContainer = document.createElement('div');
-    paypalContainer.className = 'paypal-container mt-2 mb-3';
-    const txs = [];
-    renderPayPalTransactions(txs, paypalContainer, panel);
-    panel.appendChild(paypalContainer);
-  }
+{
+  const paypalContainer = document.createElement('div');
+  paypalContainer.className = 'paypal-container mt-2 mb-3';
+
+  const billing = pedido.billing || {};
+  const billingEmail = billing.email;
+  const orderId = pedido.id;
+
+  const txs = billingEmail
+    ? await loadPayPalTransactions(billingEmail, orderId)
+    : [];
+
+  renderPayPalTransactions(txs, paypalContainer, panel);
+  panel.appendChild(paypalContainer);
+}
+
 
   resultados.appendChild(acc);
   resultados.appendChild(panel);
@@ -893,13 +906,25 @@ data.pedidos.forEach(pedido => {
         }
 
         // Sección PayPal
-        {
-          const paypalContainer = document.createElement('div');
-          paypalContainer.className = 'paypal-container mt-2 mb-3';
-          const txs = [];
-          renderPayPalTransactions(txs, paypalContainer, panel);
-          panel.appendChild(paypalContainer);
-        }
+// Sección PayPal
+{
+  const paypalContainer = document.createElement('div');
+  paypalContainer.className = 'paypal-container mt-2 mb-3';
+
+  const billing = pedido.billing || {};
+  const billingEmail = billing.email;
+  const orderId      = pedido.id;
+
+  // Llamada real a tu ruta
+  const txs = billingEmail
+    ? await loadPayPalTransactions(billingEmail, orderId)
+    : [];
+
+  console.log('🔍 PayPal URL:', txs.length ? '🚀 cargadas' : 'sin resultados');
+  renderPayPalTransactions(txs, paypalContainer, panel);
+  panel.appendChild(paypalContainer);
+}
+
 
         // Sección BBVA SEPA-TRANSFER
         {

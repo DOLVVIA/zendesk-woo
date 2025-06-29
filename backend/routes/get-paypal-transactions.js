@@ -8,13 +8,13 @@ const cache = new Map(); // 🔁 Cache en memoria
 router.get('/', async (req, res) => {
   console.log('💬 Query recibida en /get-paypal-transactions:', req.query);
 
-  // ─── Seguridad ───
+  // ─── Seguridad ─────────────────────────────────────────────────────────
   const incoming = req.get('x-zendesk-secret');
   if (!incoming || incoming !== process.env.ZENDESK_SHARED_SECRET) {
     return res.status(401).json({ error: 'Unauthorized: x-zendesk-secret inválido' });
   }
 
-  // ─── Parámetros ───
+  // ─── Parámetros ────────────────────────────────────────────────────────
   const {
     paypal_client_id: clientId,
     paypal_secret:    clientSecret,
@@ -32,19 +32,19 @@ router.get('/', async (req, res) => {
     });
   }
 
-  // ─── Cache key ───
+  // ─── Cache key ─────────────────────────────────────────────────────────
   const cacheKey = `${order_id}-${email}-${mode}`;
   const cached   = cache.get(cacheKey);
   if (cached && Date.now() - cached.timestamp < 5 * 60 * 1000) {
     return res.json(cached.data);
   }
 
-  // ─── URLs base ───
+  // ─── URLs base ─────────────────────────────────────────────────────────
   const baseUrl = mode === 'live'
     ? 'https://api-m.paypal.com'
     : 'https://api-m.sandbox.paypal.com';
 
-  // ─── 1) Obtener token ───
+  // ─── 1) Obtener token ──────────────────────────────────────────────────
   let accessToken;
   try {
     const auth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
@@ -66,7 +66,7 @@ router.get('/', async (req, res) => {
     return res.status(500).json({ error: 'Error autenticando en PayPal.' });
   }
 
-  // ─── 2) Traer el pedido de WooCommerce ───
+  // ─── 2) Traer el pedido de WooCommerce ─────────────────────────────────
   let order;
   try {
     const { woocommerce_url, consumer_key, consumer_secret } = req.query;
@@ -81,7 +81,8 @@ router.get('/', async (req, res) => {
     return res.status(500).json({ error: 'Error obteniendo pedido de WooCommerce.' });
   }
 
-  // ─── 3) Extraer IDs de captura PayPal ───
+  // ─── 3) Extraer IDs de captura PayPal (logs) ───────────────────────────
+  console.log('📝 Pedido Woo obtenido:', JSON.stringify(order, null, 2));
   const captureIds = new Set();
   if (order.transaction_id) captureIds.add(order.transaction_id);
   (order.meta_data || []).forEach(m => {
@@ -89,11 +90,13 @@ router.get('/', async (req, res) => {
       captureIds.add(m.value);
     }
   });
+  console.log('📝 Capture IDs encontrados:', Array.from(captureIds));
   if (!captureIds.size) {
-    return res.json([]); // no hay capturas
+    console.log('⚠️ No se encontraron capture IDs, respondiendo []');
+    return res.json([]);
   }
 
-  // ─── 4) Llamar a la API de Capturas de PayPal en paralelo ───
+  // ─── 4) Llamar a la API de Capturas de PayPal en paralelo ─────────────
   const detalles = await Promise.all(
     [...captureIds].map(async id => {
       try {
@@ -109,7 +112,7 @@ router.get('/', async (req, res) => {
     })
   );
 
-  // ─── 5) Filtrar nulos y por email, formatear salida ───
+  // ─── 5) Filtrar nulos y por email, formatear salida ───────────────────
   const output = detalles
     .filter(d => d && d.payer && d.payer.email_address?.toLowerCase() === email)
     .map(d => ({
@@ -123,7 +126,7 @@ router.get('/', async (req, res) => {
       date:         d.create_time
     }));
 
-  // ─── 6) Cache y respuesta ───
+  // ─── 6) Cache y respuesta ─────────────────────────────────────────────
   cache.set(cacheKey, { timestamp: Date.now(), data: output });
   res.json(output);
 });
