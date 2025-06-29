@@ -116,7 +116,6 @@ router.get('/', async (req, res) => {
           + `&end_date=${encodeURIComponent(endDate)}`
           + `&page_size=${perPage}`
           + `&page=${page}`
-          + `&transaction_status=S`
           + `&email_address=${encodeURIComponent(email)}`
           + `&fields=all`;
 
