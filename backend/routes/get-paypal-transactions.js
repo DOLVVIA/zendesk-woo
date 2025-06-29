@@ -8,13 +8,13 @@ const cache = new Map();
 router.get('/', async (req, res) => {
   console.log('💬 GET /get-paypal-transactions', req.query);
 
-  // ─── Seguridad ─────────────────────────────────────────────────────────
+  // ─── Seguridad ────────────────────────────────────────────────────────
   const incoming = req.get('x-zendesk-secret');
   if (!incoming || incoming !== process.env.ZENDESK_SHARED_SECRET) {
     return res.status(401).json({ error: 'Unauthorized: x-zendesk-secret inválido' });
   }
 
-  // ─── Parámetros ────────────────────────────────────────────────────────
+  // ─── Parámetros ──────────────────────────────────────────────────────
   const {
     paypal_client_id: clientId,
     paypal_secret:    clientSecret,
@@ -29,31 +29,32 @@ router.get('/', async (req, res) => {
   const email = (rawEmail || '').toLowerCase();
   const mode  = rawMode === 'live' ? 'live' : 'sandbox';
 
-  if (!clientId || !clientSecret || !email || !order_id || !woocommerce_url || !consumer_key || !consumer_secret) {
+  if (!clientId || !clientSecret || !email || !order_id
+      || !woocommerce_url || !consumer_key || !consumer_secret) {
     return res.status(400).json({
-      error: 'Faltan uno o más parámetros: paypal_client_id, paypal_secret, email, order_id, woocommerce_url, consumer_key o consumer_secret.'
+      error: 'Faltan paypal_client_id, paypal_secret, email, order_id, woocommerce_url, consumer_key o consumer_secret.'
     });
   }
 
-  // ─── Cache ─────────────────────────────────────────────────────────────
+  // ─── Cache ───────────────────────────────────────────────────────────
   const cacheKey = `${order_id}|${email}|${mode}`;
   const cached   = cache.get(cacheKey);
   if (cached && Date.now() - cached.timestamp < 5 * 60 * 1000) {
-    console.log('🚀 Devolviendo cache');
+    console.log('🚀 Devolviendo desde cache');
     return res.json(cached.data);
   }
 
-  // ─── Base URL PayPal ──────────────────────────────────────────────────
+  // ─── Base URL PayPal ─────────────────────────────────────────────────
   const baseUrl = mode === 'live'
     ? 'https://api-m.paypal.com'
     : 'https://api-m.sandbox.paypal.com';
 
-  // ─── 1) OAuth2 Token ───────────────────────────────────────────────────
+  // ─── 1) Obtener OAuth2 token ─────────────────────────────────────────
   let accessToken;
   try {
     const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
     const tokenRes = await fetch(`${baseUrl}/v1/oauth2/token`, {
-      method: 'POST',
+      method:  'POST',
       headers: {
         Authorization: `Basic ${basicAuth}`,
         'Content-Type': 'application/x-www-form-urlencoded'
@@ -67,32 +68,33 @@ router.get('/', async (req, res) => {
     }
     accessToken = tokenJson.access_token;
   } catch (err) {
-    console.error('❌ OAuth error:', err);
+    console.error('❌ Error OAuth2 PayPal:', err);
     return res.status(500).json({ error: 'Error autenticando en PayPal.' });
   }
 
-  // ─── 2) Validar que el pedido existe en WooCommerce ────────────────────
+  // ─── 2) Validar pedido en WooCommerce ────────────────────────────────
   try {
     const wcRes = await fetch(
       `${woocommerce_url}/wp-json/wc/v3/orders/${order_id}` +
       `?consumer_key=${consumer_key}&consumer_secret=${consumer_secret}`
     );
     if (!wcRes.ok) throw new Error(`WooCommerce ${wcRes.status}`);
-    // no necesitamos el body, con el 200 basta
+    // si devuelve 200 OK, seguimos
   } catch (err) {
-    console.error('❌ WooCommerce error:', err);
+    console.error('❌ Pedido WooCommerce no encontrado:', err);
     return res.status(500).json({ error: 'Pedido no encontrado en WooCommerce.' });
   }
 
-  // ─── 3) Paginación de transacciones (hasta 90 días atrás) ──────────────
+  // ─── 3) Paginación de Reporting API (últimos 90 días) ────────────────
   const allTx = [];
   const nowIso    = new Date().toISOString();
   const past90Iso = new Date(Date.now() - 90*24*60*60*1000).toISOString();
   const pageSize  = 100;
   let page        = 1;
+  let totalPages  = 1;
 
   try {
-    while (true) {
+    do {
       const url = `${baseUrl}/v1/reporting/transactions`
         + `?start_date=${encodeURIComponent(past90Iso)}`
         + `&end_date=${encodeURIComponent(nowIso)}`
@@ -107,18 +109,21 @@ router.get('/', async (req, res) => {
       });
       if (!r.ok) throw new Error(`PayPal reporting ${r.status}`);
       const j = await r.json();
-      const batch = j.transaction_details || [];
-      if (batch.length === 0) break;
+
+      // recoge transacciones y lee total_pages
+      const batch      = j.transaction_details || [];
+      totalPages       = j.total_pages || 1;
       allTx.push(...batch);
-      if (batch.length < pageSize) break;
+
+      console.log(`📑 Página ${page}/${totalPages} → ${batch.length} txs`);
       page++;
-    }
+    } while (page <= totalPages);
   } catch (err) {
-    console.error('❌ Reporting error:', err);
+    console.error('❌ Error en Reporting API:', err);
     return res.status(500).json({ error: 'Error obteniendo transacciones de PayPal.' });
   }
 
-  // ─── 4) Dar forma al JSON de salida ────────────────────────────────────
+  // ─── 4) Formatear salida ──────────────────────────────────────────────
   const output = allTx.map(t => ({
     id:           t.transaction_info.transaction_id,
     status:       t.transaction_info.transaction_status,
@@ -130,9 +135,9 @@ router.get('/', async (req, res) => {
     date:         t.transaction_info.transaction_initiation_date
   }));
 
-  // ─── 5) Cache y respuesta ─────────────────────────────────────────────
+  // ─── 5) Cache y respuesta ────────────────────────────────────────────
   cache.set(cacheKey, { timestamp: Date.now(), data: output });
-  console.log(`✅ Devolviendo ${output.length} transacciones`);
+  console.log(`✅ Total transacciones devueltas: ${output.length}`);
   res.json(output);
 });
 
