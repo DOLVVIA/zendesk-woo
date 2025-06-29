@@ -1,4 +1,3 @@
-// routes/paypal-transactions.js
 const express = require('express');
 const fetch   = require('node-fetch'); // v2
 const router  = express.Router();
@@ -82,24 +81,27 @@ router.get('/', async (req, res) => {
     return res.status(500).json({ error: 'Pedido WooCommerce no encontrado' });
   }
 
-  // 3) Paginación en bloques de 31 días (hasta 90 días atrás),
-  //    **incluyendo** EL FILTRO por email en cada request
-  const perPage = 100;
-  const nowMs   = Date.now();
-  const startMs = nowMs - 90 * 24 * 60 * 60 * 1000;
-  let allTxs    = [];
+  // 3) Paginación en bloques de 31 días (hasta 90 días atrás)
+  const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+  const BLOCK_MS   = 31 * ONE_DAY_MS;
+  const nowMs      = Date.now();
+  const startMs    = nowMs - 90 * ONE_DAY_MS;
+  const perPage    = 100;
+  let allTxs       = [];
 
   const toPayPalDate = ms =>
     new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
 
   for (
     let chunkStart = startMs;
-    chunkStart < nowMs;
-    chunkStart += 31 * 24 * 60 * 60 * 1000
+    chunkStart <= nowMs;
+    chunkStart += BLOCK_MS
   ) {
-    const chunkEnd = Math.min(chunkStart + 31 * 24 * 60 * 60 * 1000, nowMs);
+    const chunkEnd = Math.min(chunkStart + BLOCK_MS, nowMs);
     const startDate = toPayPalDate(chunkStart);
     const endDate   = toPayPalDate(chunkEnd);
+
+    console.log(`[🧭] Consultando: ${startDate} → ${endDate}`);
 
     let page       = 1;
     let totalPages = 1;
@@ -111,8 +113,6 @@ router.get('/', async (req, res) => {
           + `&end_date=${encodeURIComponent(endDate)}`
           + `&page_size=${perPage}`
           + `&page=${page}`
-          + `&transaction_status=S`
-          + `&email_address=${encodeURIComponent(email)}`  // <-- aquí
           + `&fields=all`;
 
         const txRes  = await fetch(url, {
@@ -124,8 +124,12 @@ router.get('/', async (req, res) => {
           throw new Error(`PayPal API ${txRes.status}`);
         }
 
+        const matched = (txJson.transaction_details || []).filter(t =>
+          t.payer_info?.email_address?.toLowerCase() === email
+        );
+
         totalPages = txJson.pagination_info?.total_pages || 1;
-        allTxs     = allTxs.concat(txJson.transaction_details || []);
+        allTxs     = allTxs.concat(matched);
         page++;
       } while (page <= totalPages);
     } catch (err) {
@@ -148,7 +152,7 @@ router.get('/', async (req, res) => {
         currency_code: t.transaction_info.transaction_amount.currency_code
       },
       refunded_amount:  t.transaction_info.transaction_amount.value_refunded || '0.00',
-      is_refunded:       t.transaction_info.transaction_status === 'REFUNDED',
+      is_refunded:      t.transaction_info.transaction_status === 'REFUNDED',
       payer_email:      t.payer_info?.email_address || null,
       date:             t.transaction_info.transaction_initiation_date
     }));
