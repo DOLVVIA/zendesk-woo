@@ -126,30 +126,6 @@ client.on('app.registered', async () => {
     }
   }
 
-///paypall
-
-async function loadPayPalTransactions(email, orderId) {
-  const { paypal_client_id, paypal_secret, paypal_mode } = getPayPalConfig();
-  const { woocommerce_url, consumer_key, consumer_secret } = getWooConfig();
-  const params = new URLSearchParams({
-    email,
-    order_id: orderId,
-    paypal_client_id,
-    paypal_secret,
-    paypal_mode,
-    woocommerce_url,
-    consumer_key,
-    consumer_secret
-  });
-  const url = `${API_BASE}/get-paypal-transactions?${params}`;
-  console.log('🔍 PayPal URL:', url);
-  const res = await fetch(url, { headers: getHeaders() });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
-}
-
-//paypal
-
 
 
 
@@ -333,13 +309,14 @@ function renderStripeCharges(charges, container, panel) {
 }
 
 // ─── Carga las transacciones de PayPal para un email y pedido dados ───
+// Carga las transacciones de PayPal para un email y pedido dados
 async function loadPayPalTransactions(email, orderId) {
   try {
     const { paypal_client_id, paypal_secret, paypal_mode } = getPayPalConfig();
     const { woocommerce_url, consumer_key, consumer_secret } = getWooConfig();
 
     const params = new URLSearchParams({
-      email,
+      email:            email,
       order_id:         orderId,
       paypal_client_id,
       paypal_secret,
@@ -353,13 +330,17 @@ async function loadPayPalTransactions(email, orderId) {
     console.log('🔍 PayPal URL:', url);
 
     const res = await fetch(url, { headers: getHeaders() });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+
     return await res.json();
   } catch (e) {
     console.error('❌ loadPayPalTransactions:', e);
     return [];
   }
 }
+
 // ────────────────────────────────────────────────────────────────────────
 
 // ─── Reembolso completo o parcial en PayPal ───────────────────────────

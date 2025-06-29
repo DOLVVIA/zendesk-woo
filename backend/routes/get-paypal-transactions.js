@@ -85,51 +85,45 @@ router.get('/', async (req, res) => {
     return res.status(500).json({ error: 'Error obteniendo pedido de WooCommerce.' });
   }
 
-  // ─── 3) Extraer IDs de captura PayPal (logs) ───────────────────────────
-  const captureIds = new Set();
-  if (order.transaction_id) captureIds.add(order.transaction_id);
-  (order.meta_data || []).forEach(m => {
-    if (m.key === 'wfocu_ppcp_order_current' || m.key === '_paypal_capture_id') {
-      captureIds.add(m.value);
-    }
-  });
-  console.log('📝 Capture IDs encontrados:', Array.from(captureIds));
-  if (!captureIds.size) {
-    console.log('⚠️ No se encontraron capture IDs, respondiendo []');
-    return res.json([]);
+  // ─── 3) Listar transacciones por email ───────────────────────────────
+  let transactions;
+  try {
+    const now  = new Date().toISOString();
+    const past = new Date(Date.now() - 30*24*60*60*1000).toISOString(); // últimos 30 días
+
+    const searchUrl = `${baseUrl}/v1/reporting/transactions`
+      + `?start_date=${encodeURIComponent(past)}`
+      + `&end_date=${encodeURIComponent(now)}`
+      + `&fields=all`
+      + `&page_size=100`
+      + `&transaction_status=S`    // sólo completadas
+      + `&email_address=${encodeURIComponent(email)}`;
+
+    const txRes = await fetch(searchUrl, {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+    if (!txRes.ok) throw new Error(`Search API ${txRes.status}`);
+    const txJson = await txRes.json();
+    transactions = txJson.transaction_details || [];
+    console.log('📝 Transacciones encontradas:', transactions.length);
+  } catch (e) {
+    console.error('❌ Error listando por email:', e);
+    return res.status(500).json({ error: 'Error listando transacciones PayPal.' });
   }
 
-  // ─── 4) Llamar a la API de Capturas de PayPal en paralelo ─────────────
-  const detalles = await Promise.all(
-    [...captureIds].map(async id => {
-      try {
-        const resp = await fetch(`${baseUrl}/v2/payments/captures/${id}`, {
-          headers: { Authorization: `Bearer ${accessToken}` }
-        });
-        if (!resp.ok) throw new Error(`PayPal ${id}: ${resp.status}`);
-        return resp.json();
-      } catch (err) {
-        console.error('❌ Error PayPal capture:', id, err);
-        return null;
-      }
-    })
-  );
+  // ─── 4) Formatear salida ──────────────────────────────────────────────
+  const output = transactions.map(t => ({
+    id:           t.transaction_info.transaction_id,
+    status:       t.transaction_info.transaction_status,
+    amount:       {
+      value:         parseFloat(t.transaction_info.transaction_amount.value).toFixed(2),
+      currency_code: t.transaction_info.transaction_amount.currency_code
+    },
+    payer_email:  t.payer_info?.email_address || null,
+    date:         t.transaction_info.transaction_initiation_date
+  }));
 
-  // ─── 5) Filtrar nulos y por email, formatear salida ───────────────────
-  const output = detalles
-    .filter(d => d && d.payer && d.payer.email_address?.toLowerCase() === email)
-    .map(d => ({
-      id:              d.id,
-      status:          d.status,
-      amount:          { value: parseFloat(d.amount.value).toFixed(2), currency_code: d.amount.currency_code },
-      refunded_amount: d.payment_state === 'REFUNDED'
-        ? (parseFloat(d.amount.value) - parseFloat(d.supplementary_data?.refund_info?.gross_refund_amount?.value || 0)).toFixed(2)
-        : '0.00',
-      is_refunded:     d.payment_state === 'REFUNDED',
-      date:            d.create_time
-    }));
-
-  // ─── 6) Cache y respuesta ─────────────────────────────────────────────
+  // ─── 5) Cache y respuesta ─────────────────────────────────────────────
   cache.set(cacheKey, { timestamp: Date.now(), data: output });
   console.log('✅ Respuesta final:', output);
   res.json(output);
