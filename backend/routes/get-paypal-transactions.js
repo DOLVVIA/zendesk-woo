@@ -5,6 +5,7 @@ const router  = express.Router();
 
 const cache = new Map(); // 🔁 Cache en memoria
 
+// Montar en GET '/' porque en app.js lo enlazaremos en '/api/get-paypal-transactions'
 router.get('/', async (req, res) => {
   console.log('💬 Query recibida en /get-paypal-transactions:', req.query);
 
@@ -85,46 +86,43 @@ router.get('/', async (req, res) => {
     return res.status(500).json({ error: 'Error obteniendo pedido de WooCommerce.' });
   }
 
-  // ─── 3) Listar transacciones por email con paginación ─────────────────
-  let allTransactions = [];
+  // ─── 3) Listar transacciones por email (paginando hasta 90 días) ──────
+  let allTx = [];
   try {
-    // fechas: últimos 90 días
-    const now  = new Date().toISOString();
-    const past = new Date(Date.now() - 90*24*60*60*1000).toISOString();
+    const now      = new Date();
+    const ninety   = new Date(now.getTime() - 90*24*60*60*1000).toISOString();
+    const pageSize = 100;      // máximo permitido por PayPal
+    let page       = 1;
+    let fetched;
 
-    let nextPageUrl = `${baseUrl}/v1/reporting/transactions`
-      + `?start_date=${encodeURIComponent(past)}`
-      + `&end_date=${encodeURIComponent(now)}`
-      + `&fields=all`
-      + `&page_size=100`
-      + `&transaction_status=S`
-      + `&email_address=${encodeURIComponent(email)}`;
+    do {
+      const searchUrl = `${baseUrl}/v1/reporting/transactions` +
+        `?start_date=${encodeURIComponent(ninety)}` +
+        `&end_date=${encodeURIComponent(now.toISOString())}` +
+        `&fields=all` +
+        `&page_size=${pageSize}` +
+        `&page=${page}` +
+        `&transaction_status=S` +    // sólo completadas
+        `&email_address=${encodeURIComponent(email)}`;
 
-    // paginamos mientras haya next_page
-    while (nextPageUrl) {
-      const txRes = await fetch(nextPageUrl, {
+      const txRes = await fetch(searchUrl, {
         headers: { Authorization: `Bearer ${accessToken}` }
       });
       if (!txRes.ok) throw new Error(`Search API ${txRes.status}`);
       const txJson = await txRes.json();
-      const pageTx = txJson.transaction_details || [];
-      allTransactions = allTransactions.concat(pageTx);
+      fetched = txJson.transaction_details || [];
+      allTx  = allTx.concat(fetched);
+      page++;
+    } while (fetched.length === pageSize);  // si llenó la página, puede haber más
 
-      // PayPal devuelve next_page_path, construimos URL absoluta
-      if (txJson.next_page_path) {
-        nextPageUrl = baseUrl + txJson.next_page_path;
-      } else {
-        nextPageUrl = null;
-      }
-    }
-    console.log('📝 Total transacciones obtenidas:', allTransactions.length);
+    console.log('📝 Transacciones totales encontradas:', allTx.length);
   } catch (e) {
     console.error('❌ Error listando por email:', e);
     return res.status(500).json({ error: 'Error listando transacciones PayPal.' });
   }
 
   // ─── 4) Formatear salida ──────────────────────────────────────────────
-  const output = allTransactions.map(t => ({
+  const output = allTx.map(t => ({
     id:           t.transaction_info.transaction_id,
     status:       t.transaction_info.transaction_status,
     amount:       {
@@ -137,7 +135,7 @@ router.get('/', async (req, res) => {
 
   // ─── 5) Cache y respuesta ─────────────────────────────────────────────
   cache.set(cacheKey, { timestamp: Date.now(), data: output });
-  console.log('✅ Respuesta final (total):', output.length);
+  console.log('✅ Respuesta final (paginated):', output.length);
   res.json(output);
 });
 
