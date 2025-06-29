@@ -81,47 +81,53 @@ router.get('/', async (req, res) => {
     return res.status(500).json({ error: 'Pedido WooCommerce no encontrado' });
   }
 
-  // 3) Traer TODAS las páginas de transacciones (hasta 90 días atrás)
+  // 3) Traer transacciones por bloques de 30 días (máximo permitido por PayPal es 31 días)
   const perPage = 100;
 
-  // ✅ Corregir formato de fechas ISO sin milisegundos
   const toPayPalDate = (date) =>
     new Date(date).toISOString().replace(/\.\d{3}Z$/, 'Z');
 
-  const now  = toPayPalDate(Date.now());
-  const past = toPayPalDate(Date.now() - 90 * 24 * 60 * 60 * 1000);
+  const now   = Date.now();
+  const start = now - 90 * 24 * 60 * 60 * 1000;
 
-  let allTxs     = [];
-  let page       = 1;
-  let totalPages = 1;
+  let allTxs = [];
 
-  try {
-    do {
-      const url = `${baseUrl}/v1/reporting/transactions`
-        + `?start_date=${encodeURIComponent(past)}`
-        + `&end_date=${encodeURIComponent(now)}`
-        + `&page_size=${perPage}`
-        + `&page=${page}`
-        + `&fields=all`; // 🛠️ Removido transaction_status=S
+  for (let chunkStart = start; chunkStart < now; chunkStart += 30 * 24 * 60 * 60 * 1000) {
+    const chunkEnd = Math.min(chunkStart + 30 * 24 * 60 * 60 * 1000, now);
+    const startDate = toPayPalDate(chunkStart);
+    const endDate   = toPayPalDate(chunkEnd);
 
-      const txRes = await fetch(url, {
-        headers: { 'Authorization': `Bearer ${accessToken}` }
-      });
+    let page = 1;
+    let totalPages = 1;
 
-      const txJson = await txRes.json();
+    try {
+      do {
+        const url = `${baseUrl}/v1/reporting/transactions`
+          + `?start_date=${encodeURIComponent(startDate)}`
+          + `&end_date=${encodeURIComponent(endDate)}`
+          + `&page_size=${perPage}`
+          + `&page=${page}`
+          + `&fields=all`;
 
-      if (!txRes.ok) {
-        console.error('❌ Respuesta PayPal:', txJson);
-        throw new Error(`PayPal API ${txRes.status}`);
-      }
+        const txRes = await fetch(url, {
+          headers: { 'Authorization': `Bearer ${accessToken}` }
+        });
 
-      totalPages = txJson.pagination_info?.total_pages || 1;
-      allTxs = allTxs.concat(txJson.transaction_details || []);
-      page++;
-    } while (page <= totalPages);
-  } catch (err) {
-    console.error('❌ Error paginando transacciones:', err);
-    return res.status(500).json({ error: 'Error listando transacciones PayPal' });
+        const txJson = await txRes.json();
+
+        if (!txRes.ok) {
+          console.error('❌ Respuesta PayPal:', txJson);
+          throw new Error(`PayPal API ${txRes.status}`);
+        }
+
+        totalPages = txJson.pagination_info?.total_pages || 1;
+        allTxs = allTxs.concat(txJson.transaction_details || []);
+        page++;
+      } while (page <= totalPages);
+    } catch (err) {
+      console.error('❌ Error paginando transacciones:', err);
+      return res.status(500).json({ error: 'Error listando transacciones PayPal' });
+    }
   }
 
   // 4) Filtrar por email, ordenar desc y formatear
