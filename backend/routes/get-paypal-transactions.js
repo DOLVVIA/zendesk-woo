@@ -85,34 +85,46 @@ router.get('/', async (req, res) => {
     return res.status(500).json({ error: 'Error obteniendo pedido de WooCommerce.' });
   }
 
-  // ─── 3) Listar transacciones por email ───────────────────────────────
-  let transactions;
+  // ─── 3) Listar transacciones por email con paginación ─────────────────
+  let allTransactions = [];
   try {
+    // fechas: últimos 90 días
     const now  = new Date().toISOString();
-    const past = new Date(Date.now() - 30*24*60*60*1000).toISOString(); // últimos 30 días
+    const past = new Date(Date.now() - 90*24*60*60*1000).toISOString();
 
-    const searchUrl = `${baseUrl}/v1/reporting/transactions`
+    let nextPageUrl = `${baseUrl}/v1/reporting/transactions`
       + `?start_date=${encodeURIComponent(past)}`
       + `&end_date=${encodeURIComponent(now)}`
       + `&fields=all`
       + `&page_size=100`
-      + `&transaction_status=S`    // sólo completadas
+      + `&transaction_status=S`
       + `&email_address=${encodeURIComponent(email)}`;
 
-    const txRes = await fetch(searchUrl, {
-      headers: { Authorization: `Bearer ${accessToken}` }
-    });
-    if (!txRes.ok) throw new Error(`Search API ${txRes.status}`);
-    const txJson = await txRes.json();
-    transactions = txJson.transaction_details || [];
-    console.log('📝 Transacciones encontradas:', transactions.length);
+    // paginamos mientras haya next_page
+    while (nextPageUrl) {
+      const txRes = await fetch(nextPageUrl, {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+      if (!txRes.ok) throw new Error(`Search API ${txRes.status}`);
+      const txJson = await txRes.json();
+      const pageTx = txJson.transaction_details || [];
+      allTransactions = allTransactions.concat(pageTx);
+
+      // PayPal devuelve next_page_path, construimos URL absoluta
+      if (txJson.next_page_path) {
+        nextPageUrl = baseUrl + txJson.next_page_path;
+      } else {
+        nextPageUrl = null;
+      }
+    }
+    console.log('📝 Total transacciones obtenidas:', allTransactions.length);
   } catch (e) {
     console.error('❌ Error listando por email:', e);
     return res.status(500).json({ error: 'Error listando transacciones PayPal.' });
   }
 
   // ─── 4) Formatear salida ──────────────────────────────────────────────
-  const output = transactions.map(t => ({
+  const output = allTransactions.map(t => ({
     id:           t.transaction_info.transaction_id,
     status:       t.transaction_info.transaction_status,
     amount:       {
@@ -125,7 +137,7 @@ router.get('/', async (req, res) => {
 
   // ─── 5) Cache y respuesta ─────────────────────────────────────────────
   cache.set(cacheKey, { timestamp: Date.now(), data: output });
-  console.log('✅ Respuesta final:', output);
+  console.log('✅ Respuesta final (total):', output.length);
   res.json(output);
 });
 
