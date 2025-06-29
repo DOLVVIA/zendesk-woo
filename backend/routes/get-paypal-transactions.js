@@ -25,7 +25,7 @@ router.get('/', async (req, res) => {
     consumer_secret
   } = req.query;
 
-  const email = (rawEmail || '').toLowerCase();
+  const email = (rawEmail || '').trim().toLowerCase();
   const mode  = rawMode === 'live' ? 'live' : 'sandbox';
 
   if (
@@ -35,6 +35,9 @@ router.get('/', async (req, res) => {
   ) {
     return res.status(400).json({ error: 'Faltan parámetros obligatorios' });
   }
+
+  console.log('[📥] Email recibido:', email);
+  if (!email) return res.json([]);
 
   // --- Cache 5 min ---
   const cacheKey = `${order_id}|${email}|${mode}`;
@@ -97,11 +100,11 @@ router.get('/', async (req, res) => {
     chunkStart <= nowMs;
     chunkStart += BLOCK_MS
   ) {
-    const chunkEnd = Math.min(chunkStart + BLOCK_MS, nowMs);
+    const chunkEnd  = Math.min(chunkStart + BLOCK_MS, nowMs);
     const startDate = toPayPalDate(chunkStart);
     const endDate   = toPayPalDate(chunkEnd);
 
-    console.log(`[🧭] Consultando: ${startDate} → ${endDate}`);
+    console.log(`[🧭] Rango: ${startDate} → ${endDate}`);
 
     let page       = 1;
     let totalPages = 1;
@@ -113,9 +116,11 @@ router.get('/', async (req, res) => {
           + `&end_date=${encodeURIComponent(endDate)}`
           + `&page_size=${perPage}`
           + `&page=${page}`
+          + `&transaction_status=S`
+          + `&email_address=${encodeURIComponent(email)}`
           + `&fields=all`;
 
-        const txRes  = await fetch(url, {
+        const txRes = await fetch(url, {
           headers: { 'Authorization': `Bearer ${accessToken}` }
         });
         const txJson = await txRes.json();
@@ -128,8 +133,8 @@ router.get('/', async (req, res) => {
           t.payer_info?.email_address?.toLowerCase() === email
         );
 
+        allTxs = allTxs.concat(matched);
         totalPages = txJson.pagination_info?.total_pages || 1;
-        allTxs     = allTxs.concat(matched);
         page++;
       } while (page <= totalPages);
     } catch (err) {
