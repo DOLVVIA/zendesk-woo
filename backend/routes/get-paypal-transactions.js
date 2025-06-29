@@ -36,6 +36,7 @@ router.get('/', async (req, res) => {
   const cacheKey = `${order_id}-${email}-${mode}`;
   const cached   = cache.get(cacheKey);
   if (cached && Date.now() - cached.timestamp < 5 * 60 * 1000) {
+    console.log('🚀 Respuesta desde cache');
     return res.json(cached.data);
   }
 
@@ -58,9 +59,11 @@ router.get('/', async (req, res) => {
     });
     const tokenJson = await tokenRes.json();
     if (!tokenRes.ok) {
+      console.error('❌ PayPal token error:', tokenJson);
       return res.status(500).json({ error: tokenJson.error_description || tokenJson.error });
     }
     accessToken = tokenJson.access_token;
+    console.log('🔑 Token PayPal obtenido');
   } catch (e) {
     console.error('❌ Error autenticando con PayPal:', e);
     return res.status(500).json({ error: 'Error autenticando en PayPal.' });
@@ -74,15 +77,15 @@ router.get('/', async (req, res) => {
       `${woocommerce_url}/wp-json/wc/v3/orders/${order_id}` +
       `?consumer_key=${consumer_key}&consumer_secret=${consumer_secret}`
     );
-    if (!wcRes.ok) throw new Error('Error al traer pedido WooCommerce');
+    if (!wcRes.ok) throw new Error(`WooCommerce ${wcRes.status}`);
     order = await wcRes.json();
+    console.log('📝 Pedido Woo obtenido:', JSON.stringify(order, null, 2));
   } catch (e) {
     console.error('❌ Error WooCommerce:', e);
     return res.status(500).json({ error: 'Error obteniendo pedido de WooCommerce.' });
   }
 
   // ─── 3) Extraer IDs de captura PayPal (logs) ───────────────────────────
-  console.log('📝 Pedido Woo obtenido:', JSON.stringify(order, null, 2));
   const captureIds = new Set();
   if (order.transaction_id) captureIds.add(order.transaction_id);
   (order.meta_data || []).forEach(m => {
@@ -116,18 +119,19 @@ router.get('/', async (req, res) => {
   const output = detalles
     .filter(d => d && d.payer && d.payer.email_address?.toLowerCase() === email)
     .map(d => ({
-      id:           d.id,
-      status:       d.status,
-      amount:       { value: parseFloat(d.amount.value).toFixed(2), currency_code: d.amount.currency_code },
+      id:              d.id,
+      status:          d.status,
+      amount:          { value: parseFloat(d.amount.value).toFixed(2), currency_code: d.amount.currency_code },
       refunded_amount: d.payment_state === 'REFUNDED'
         ? (parseFloat(d.amount.value) - parseFloat(d.supplementary_data?.refund_info?.gross_refund_amount?.value || 0)).toFixed(2)
         : '0.00',
-      is_refunded:  d.payment_state === 'REFUNDED',
-      date:         d.create_time
+      is_refunded:     d.payment_state === 'REFUNDED',
+      date:            d.create_time
     }));
 
   // ─── 6) Cache y respuesta ─────────────────────────────────────────────
   cache.set(cacheKey, { timestamp: Date.now(), data: output });
+  console.log('✅ Respuesta final:', output);
   res.json(output);
 });
 
