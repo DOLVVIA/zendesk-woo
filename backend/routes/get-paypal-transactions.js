@@ -1,4 +1,3 @@
-// routes/paypal-transactions.js
 const express = require('express');
 const fetch   = require('node-fetch'); // v2
 const router  = express.Router();
@@ -84,10 +83,16 @@ router.get('/', async (req, res) => {
 
   // 3) Traer TODAS las páginas de transacciones (hasta 90 días atrás)
   const perPage = 100;
-  const now     = new Date().toISOString();
-  const past    = new Date(Date.now() - 90*24*60*60*1000).toISOString();
-  let allTxs    = [];
-  let page      = 1;
+
+  // ✅ Corregir formato de fechas ISO sin milisegundos
+  const toPayPalDate = (date) =>
+    new Date(date).toISOString().replace(/\.\d{3}Z$/, 'Z');
+
+  const now  = toPayPalDate(Date.now());
+  const past = toPayPalDate(Date.now() - 90 * 24 * 60 * 60 * 1000);
+
+  let allTxs     = [];
+  let page       = 1;
   let totalPages = 1;
 
   try {
@@ -97,13 +102,18 @@ router.get('/', async (req, res) => {
         + `&end_date=${encodeURIComponent(now)}`
         + `&page_size=${perPage}`
         + `&page=${page}`
-        + `&transaction_status=S`   // completadas
-        + `&fields=all`;
+        + `&fields=all`; // 🛠️ Removido transaction_status=S
+
       const txRes = await fetch(url, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       });
+
       const txJson = await txRes.json();
-      if (!txRes.ok) throw new Error(`PayPal API ${txRes.status}`);
+
+      if (!txRes.ok) {
+        console.error('❌ Respuesta PayPal:', txJson);
+        throw new Error(`PayPal API ${txRes.status}`);
+      }
 
       totalPages = txJson.pagination_info?.total_pages || 1;
       allTxs = allTxs.concat(txJson.transaction_details || []);
