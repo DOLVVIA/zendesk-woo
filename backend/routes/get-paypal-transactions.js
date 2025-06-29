@@ -67,55 +67,53 @@ router.get('/', async (req, res) => {
       return res.status(500).json({ error: tokenJson.error_description || tokenJson.error });
     }
     accessToken = tokenJson.access_token;
+    console.log('🔑 Token PayPal obtenido');
   } catch (err) {
     console.error('❌ Error OAuth2 PayPal:', err);
     return res.status(500).json({ error: 'Error autenticando en PayPal.' });
   }
 
-  // ─── 2) Validar pedido en WooCommerce ────────────────────────────────
+  // ─── 2) Validar existencia del pedido en WooCommerce ────────────────
   try {
     const wcRes = await fetch(
       `${woocommerce_url}/wp-json/wc/v3/orders/${order_id}` +
       `?consumer_key=${consumer_key}&consumer_secret=${consumer_secret}`
     );
     if (!wcRes.ok) throw new Error(`WooCommerce ${wcRes.status}`);
-    // si devuelve 200 OK, seguimos
   } catch (err) {
     console.error('❌ Pedido WooCommerce no encontrado:', err);
     return res.status(500).json({ error: 'Pedido no encontrado en WooCommerce.' });
   }
 
   // ─── 3) Paginación de Reporting API (últimos 90 días) ────────────────
-  const allTx = [];
-  const nowIso    = new Date().toISOString();
-  const past90Iso = new Date(Date.now() - 90*24*60*60*1000).toISOString();
-  const pageSize  = 100;
-  let page        = 1;
-  let totalPages  = 1;
+  const allTx       = [];
+  const nowIso      = new Date().toISOString();
+  const past90Iso   = new Date(Date.now() - 90*24*60*60*1000).toISOString();
+  const pageSize    = 100;
+  let   page        = 1;
+  let   totalPages  = 1;
 
   try {
     do {
       const url = `${baseUrl}/v1/reporting/transactions`
-        + `?start_date=${encodeURIComponent(past90Iso)}`
-        + `&end_date=${encodeURIComponent(nowIso)}`
-        + `&page_size=${pageSize}`
-        + `&page=${page}`
-        + `&transaction_status=S`
-        + `&email_address=${encodeURIComponent(email)}`
-        + `&fields=all`;
+                + `?start_date=${encodeURIComponent(past90Iso)}`
+                + `&end_date=${encodeURIComponent(nowIso)}`
+                + `&page_size=${pageSize}`
+                + `&page=${page}`
+                + `&transaction_status=S`
+                + `&fields=all`;
 
       const r = await fetch(url, {
         headers: { Authorization: `Bearer ${accessToken}` }
       });
-      if (!r.ok) throw new Error(`PayPal reporting ${r.status}`);
+      if (!r.ok) throw new Error(`PayPal Reporting API ${r.status}`);
       const j = await r.json();
 
-      // recoge transacciones y lee total_pages
-      const batch      = j.transaction_details || [];
-      totalPages       = j.total_pages || 1;
+      const batch     = j.transaction_details || [];
+      totalPages      = j.total_pages || 1;
       allTx.push(...batch);
 
-      console.log(`📑 Página ${page}/${totalPages} → ${batch.length} txs`);
+      console.log(`📑 Página ${page}/${totalPages} → ${batch.length} transacciones`);
       page++;
     } while (page <= totalPages);
   } catch (err) {
@@ -123,17 +121,25 @@ router.get('/', async (req, res) => {
     return res.status(500).json({ error: 'Error obteniendo transacciones de PayPal.' });
   }
 
-  // ─── 4) Formatear salida ──────────────────────────────────────────────
-  const output = allTx.map(t => ({
-    id:           t.transaction_info.transaction_id,
-    status:       t.transaction_info.transaction_status,
-    amount: {
-      value:         parseFloat(t.transaction_info.transaction_amount.value).toFixed(2),
-      currency_code: t.transaction_info.transaction_amount.currency_code
-    },
-    payer_email:  t.payer_info?.email_address || null,
-    date:         t.transaction_info.transaction_initiation_date
-  }));
+  // ─── 4) Filtrado por email + formateo de salida ──────────────────────
+  const output = allTx
+    .filter(t => 
+      t.payer_info?.email_address?.toLowerCase() === email
+    )
+    .sort((a, b) =>
+      new Date(b.transaction_info.transaction_initiation_date)
+      - new Date(a.transaction_info.transaction_initiation_date)
+    )
+    .map(t => ({
+      id: t.transaction_info.transaction_id,
+      status: t.transaction_info.transaction_status,
+      amount: {
+        value: parseFloat(t.transaction_info.transaction_amount.value).toFixed(2),
+        currency_code: t.transaction_info.transaction_amount.currency_code
+      },
+      payer_email: t.payer_info?.email_address || null,
+      date: t.transaction_info.transaction_initiation_date
+    }));
 
   // ─── 5) Cache y respuesta ────────────────────────────────────────────
   cache.set(cacheKey, { timestamp: Date.now(), data: output });
