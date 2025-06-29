@@ -1,6 +1,6 @@
 // routes/paypal-transactions.js
 const express = require('express');
-const fetch   = require('node-fetch'); // npm install node-fetch@2
+const fetch   = require('node-fetch'); // v2
 const router  = express.Router();
 
 const cache = new Map();
@@ -55,7 +55,7 @@ router.get('/', async (req, res) => {
   try {
     const auth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
     const tokenRes = await fetch(`${baseUrl}/v1/oauth2/token`, {
-      method:  'POST',
+      method: 'POST',
       headers: {
         'Authorization': `Basic ${auth}`,
         'Content-Type':  'application/x-www-form-urlencoded'
@@ -82,13 +82,15 @@ router.get('/', async (req, res) => {
     return res.status(500).json({ error: 'Pedido WooCommerce no encontrado' });
   }
 
-  // 3) Traer transacciones por bloques de 31 días (90 días atrás)
+  // 3) Paginación en bloques de 31 días (hasta 90 días atrás),
+  //    **incluyendo** EL FILTRO por email en cada request
   const perPage = 100;
   const nowMs   = Date.now();
   const startMs = nowMs - 90 * 24 * 60 * 60 * 1000;
   let allTxs    = [];
 
-  const toPayPalDate = ms => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
+  const toPayPalDate = ms =>
+    new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
 
   for (
     let chunkStart = startMs;
@@ -110,6 +112,7 @@ router.get('/', async (req, res) => {
           + `&page_size=${perPage}`
           + `&page=${page}`
           + `&transaction_status=S`
+          + `&email_address=${encodeURIComponent(email)}`  // <-- aquí
           + `&fields=all`;
 
         const txRes  = await fetch(url, {
@@ -131,11 +134,8 @@ router.get('/', async (req, res) => {
     }
   }
 
-  // 4) Filtrar por email, ordenar y formatear
+  // 4) Ordenar de más reciente a más antiguo y formatear
   const output = allTxs
-    .filter(t =>
-      t.payer_info?.email_address?.toLowerCase() === email
-    )
     .sort((a, b) =>
       new Date(b.transaction_info.transaction_initiation_date)
       - new Date(a.transaction_info.transaction_initiation_date)
@@ -153,7 +153,7 @@ router.get('/', async (req, res) => {
       date:             t.transaction_info.transaction_initiation_date
     }));
 
-  // 5) Cache y enviar
+  // 5) Cache y respuesta
   cache.set(cacheKey, { timestamp: Date.now(), data: output });
   console.log(`✅ /get-paypal-transactions → ${output.length} txs`);
   res.json(output);
