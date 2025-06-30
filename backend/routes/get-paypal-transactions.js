@@ -80,7 +80,7 @@ router.get('/', async (req, res) => {
   const ONE_DAY_MS = 24 * 60 * 60 * 1000;
   const BLOCK_MS = 30 * ONE_DAY_MS;
   const nowMs = Date.now();
-  const startMs = nowMs - 90 * ONE_DAY_MS;
+  const startMs = nowMs - 29 * ONE_DAY_MS;
   const perPage = 100;
   let allTxs = [];
 
