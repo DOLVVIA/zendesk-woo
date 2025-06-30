@@ -78,7 +78,7 @@ router.get('/', async (req, res) => {
 
   // 3) Recolectar transacciones (sin filtro por email)
   const ONE_DAY_MS = 24 * 60 * 60 * 1000;
-  const BLOCK_MS = 31 * ONE_DAY_MS;
+  const BLOCK_MS = 30 * ONE_DAY_MS;
   const nowMs = Date.now();
   const startMs = nowMs - 90 * ONE_DAY_MS;
   const perPage = 100;
