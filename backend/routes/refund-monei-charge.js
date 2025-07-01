@@ -1,64 +1,64 @@
-// backend/routes/refund-monei-charge.js
-
 const express = require('express');
 const fetch   = require('node-fetch');
 const router  = express.Router();
 
-/**
- * POST /api/refund-monei-charge
- *
- * Body JSON:
- *   {
- *     chargeId: string,    // ID del cargo en Monei
- *     amount: number,      // importe en céntimos (ej: 2999 para 29.99€)
- *     currency?: string    // opcional, por defecto 'EUR'
- *   }
- *
- * Headers:
- *   x-zendesk-secret: <tu_shared_secret>
- *   Authorization:    Bearer <monei_api_key>
- */
+// POST /api/refund-monei-charge
+// Body JSON: { chargeId: string, amount: number }  (amount en céntimos)
+// Header: x-monei-api-key: pk_live_xxx
+// Header: x-zendesk-secret: <tu_shared_secret>
 router.post('/', async (req, res) => {
-  // 1) Validar secret
-  const incomingSecret = req.get('x-zendesk-secret');
-  if (!incomingSecret || incomingSecret !== process.env.ZENDESK_SHARED_SECRET) {
+  // 1) Validar seguridad con x-zendesk-secret
+  const zendeskSecret = req.get('x-zendesk-secret');
+  if (!zendeskSecret || zendeskSecret !== process.env.ZENDESK_SHARED_SECRET) {
     return res.status(401).json({ error: 'Unauthorized: x-zendesk-secret inválido' });
   }
 
-  // 2) Validar Authorization header
-  const auth = req.get('Authorization') || '';
-  if (!auth.startsWith('Bearer ')) {
-    return res.status(400).json({ error: 'Falta header Authorization: Bearer <monei_api_key>' });
+  // 2) Leer payload y API key Monei
+  const { chargeId, amount } = req.body;
+  const moneiApiKey = req.get('x-monei-api-key');
+  if (!moneiApiKey) {
+    return res.status(400).json({ error: 'Falta x-monei-api-key en headers.' });
   }
-
-  const { chargeId, amount, currency = 'EUR' } = req.body;
   if (!chargeId || typeof amount !== 'number') {
-    return res.status(400).json({ error: 'Debe enviar chargeId y amount (number)' });
+    return res.status(400).json({ error: 'Cuerpo inválido: necesita chargeId y amount.' });
   }
 
   try {
-    // 3) Llamada a la API REST de Monei para crear el refund
-    const url = `https://api.monei.com/v1/charges/${encodeURIComponent(chargeId)}/refunds`;
-    const mRes = await fetch(url, {
+    // 3) Llamada al endpoint de refund de Monei
+    // Atención: el endpoint REST es /v1/payments/{payment_id}/refund
+    const url = `https://api.monei.com/v1/payments/${chargeId}/refund`;
+    const response = await fetch(url, {
       method: 'POST',
       headers: {
-        Authorization: auth,
+        'Authorization': `Bearer ${moneiApiKey}`,   // !! con prefijo Bearer
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ amount, currency })
+      body: JSON.stringify({
+        // Monei espera el amount en la unidad de la moneda (p. ej. 19.99), no en céntimos.
+        amount: (amount / 100).toFixed(2)
+      })
     });
 
-    const mJson = await mRes.json();
-    if (!mRes.ok) {
-      console.error('❌ Monei refund error:', mRes.status, mJson);
-      return res.status(mRes.status).json({ error: mJson.error || JSON.stringify(mJson) });
+    const result = await response.json();
+
+    // 4) Manejo de errores de Monei
+    if (!response.ok) {
+      console.error('❌ Monei refund error:', result);
+      return res.status(response.status).json({
+        success: false,
+        error: result.message || JSON.stringify(result)
+      });
     }
 
-    // 4) Devolver datos del refund
-    return res.json({ success: true, refund: mJson.data });
+    // 5) OK: devolvemos el objeto refund tal cual viene de Monei
+    res.json({
+      success: true,
+      refund: result
+    });
+
   } catch (err) {
-    console.error('❌ Error refund Monei:', err);
-    return res.status(500).json({ error: err.message });
+    console.error('❌ Error en refund-monei-charge:', err);
+    res.status(500).json({ error: err.message });
   }
 });
 
