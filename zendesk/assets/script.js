@@ -567,8 +567,9 @@ async function renderPayPalTransactions(txs, container, panel) {
 // fin PayPal
 
 
-// ─── MONEI: carga y renderizado ────────────────────────────
+// ─── MONEI: carga, renderizado y reembolso ────────────────────────────
 
+// 1) Carga los pagos de Monei desde tu ruta
 async function loadMoneiCharges({ email, phone }) {
   try {
     const { monei_api_key } = getMoneiConfig();
@@ -581,7 +582,7 @@ async function loadMoneiCharges({ email, phone }) {
 
     const headers = {
       ...getHeaders(),                // x-zendesk-secret + Content-Type
-      'x-monei-api-key': monei_api_key
+      'x-monei-api-key': monei_api_key // tu clave de Monei
     };
 
     const res = await fetch(url, { headers });
@@ -593,12 +594,52 @@ async function loadMoneiCharges({ email, phone }) {
   }
 }
 
-function renderMoneiCharges(charges, container) {
+// 2) Reembolso completo/parcial de Monei
+async function refundMoneiCharge(chargeId, amount, panel) {
+  try {
+    const { monei_api_key } = getMoneiConfig();
+    const payload = { chargeId, amount };
+    console.log('📦 Payload enviado a /refund-monei-charge:', payload);
+
+    const res = await fetch(`${API_BASE}/refund-monei-charge`, {
+      method: 'POST',
+      headers: {
+        ...getHeaders(),                  // x-zendesk-secret + Content-Type
+        'x-monei-api-key': monei_api_key, // tu clave Monei
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+
+    const { success, refund, error } = await res.json();
+    if (!success) throw new Error(error);
+
+    showMessage(panel, `✅ Reembolso OK (ID: ${refund.id})`);
+
+    // recarga solo la sección Monei de este panel
+    const billing = JSON.parse(panel.dataset.billing);
+    const charges = await loadMoneiCharges({ email: billing.email, phone: billing.phone });
+    const moneiContainer = panel.querySelector('.monei-container');
+    renderMoneiCharges(charges, moneiContainer, panel);
+
+  } catch (e) {
+    console.error('❌ Exception en refundMoneiCharge:', e);
+    showMessage(panel, `Error reembolso Monei: ${e.message}`, 'error');
+  }
+}
+
+// 3) Renderizado de cargos Monei con botones de reembolso
+function renderMoneiCharges(charges, container, panel) {
   container.innerHTML = '';
   if (!charges.length) {
     container.innerHTML = '<p>No hay pagos de Monei para este cliente.</p>';
     return;
   }
+
   const details = document.createElement('details');
   details.className = 'monei-payments mt-2 mb-3';
   const summary = document.createElement('summary');
@@ -608,17 +649,82 @@ function renderMoneiCharges(charges, container) {
 
   const ul = document.createElement('ul');
   ul.className = 'list-unstyled';
+
   charges.forEach(c => {
-    const date = new Date(c.createdAt).toLocaleString();
+    const date   = new Date(c.createdAt).toLocaleString();
+    const amount = (c.amount / 100).toFixed(2);
+
     const li = document.createElement('li');
-    li.innerText =
-      `ID ${c.id} — ${(c.amount / 100).toFixed(2)} ${c.currency} — ${c.status} — ${date}`;
+    li.className = 'mb-4';
+    li.innerHTML = `
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <div>${c.metadata?.products || c.description || `ID ${c.id}`} — ${amount} ${c.currency} — ${c.status}</div>
+        <div>
+          <button type="button" class="btn btn-sm btn-danger mr-1"
+                  ${c.status==='REFUNDED'? 'disabled':''}
+                  data-charge-id="${c.id}"
+                  data-amount="${c.amount}">
+            Reembolso completo
+          </button>
+          <button type="button" class="btn btn-sm btn-warning"
+                  ${c.status==='REFUNDED'? 'disabled':''}
+                  data-charge-id="${c.id}"
+                  data-amount="${c.amount}">
+            Reembolso parcial
+          </button>
+        </div>
+      </div>
+    `;
+
+    // Formualrio parcial oculto
+    const form = document.createElement('form');
+    form.className = 'mt-2 mb-3';
+    form.style.display = 'none';
+    form.innerHTML = `
+      <input type="number" name="partial" step="0.01" min="0.01"
+             max="${amount}" placeholder="Ej: hasta ${amount}"
+             required class="form-control mb-2" />
+      <button type="submit" class="btn btn-sm btn-success btn-block mb-2">✓ Aceptar</button>
+      <button type="button" class="btn btn-sm btn-danger btn-block btn-cancel">✖ Cancelar</button>
+    `;
+
+    // Listeners de los botones
+    li.querySelectorAll('button').forEach(btn => {
+      if (btn.innerText.includes('completo')) {
+        btn.addEventListener('click', () =>
+          refundMoneiCharge(c.id, c.amount, panel)
+        );
+      } else {
+        btn.addEventListener('click', () => {
+          form.style.display = 'block';
+          btn.style.display = 'none';
+        });
+      }
+    });
+
+    form.querySelector('.btn-cancel').addEventListener('click', () => {
+      form.style.display = 'none';
+      li.querySelector('button.btn-warning').style.display = '';
+      form.partial.value = '';
+    });
+    form.addEventListener('submit', async ev => {
+      ev.preventDefault();
+      const val = parseFloat(form.partial.value.replace(',', '.'));
+      if (isNaN(val) || val <= 0 || val > parseFloat(amount)) {
+        return alert(`Importe inválido (0 < importe ≤ ${amount})`);
+      }
+      const cents = Math.round(val * 100);
+      await refundMoneiCharge(c.id, cents, panel);
+    });
+
+    li.appendChild(form);
     ul.appendChild(li);
   });
 
   details.appendChild(ul);
   container.appendChild(details);
 }
+
 // ────────────────────────────────────────────────────────────────────────
 
 
