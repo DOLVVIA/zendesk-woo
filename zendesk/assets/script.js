@@ -32,6 +32,13 @@ client.on('app.registered', async () => {
     };
   }
 
+
+// ——————— Añadido: configuración Monei ———————
+  function getMoneiConfig() {
+  return { monei_api_key: SETTINGS.monei_api_key };
+}
+
+
   let orderStatuses = [];
   let productsList   = [];
   let citiesList     = [];
@@ -558,6 +565,69 @@ async function renderPayPalTransactions(txs, container, panel) {
 
 // ────────────────────────────────────────────────────────────────────────
 // fin PayPal
+
+
+// ─── MONEI: carga y renderizado ────────────────────────────
+
+// 1) Carga los pagos de Monei desde tu ruta
+async function loadMoneiCharges({ email, phone }) {
+  try {
+    const { monei_api_key } = getMoneiConfig();
+
+    // 1.1) Montamos los parámetros
+    const qs = [];
+    if (email) qs.push(`email=${encodeURIComponent(email)}`);
+    if (phone) qs.push(`phone=${encodeURIComponent(phone)}`);
+
+    // 1.2) Añadimos las credenciales de WooCommerce
+    const { woocommerce_url, consumer_key, consumer_secret } = getWooConfig();
+    qs.push(`woocommerce_url=${encodeURIComponent(woocommerce_url)}`);
+    qs.push(`consumer_key=${encodeURIComponent(consumer_key)}`);
+    qs.push(`consumer_secret=${encodeURIComponent(consumer_secret)}`);
+
+    // 1.3) Construimos la URL final
+    const url = `${API_BASE}/get-monei-charges?${qs.join('&')}`;
+    console.log('🔍 Monei URL:', url);
+
+    // 1.4) Petición al backend
+    const res = await fetch(url, { headers: getHeaders() });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  } catch (e) {
+    console.error('❌ loadMoneiCharges:', e);
+    return [];
+  }
+}
+
+// 2) Renderiza los pagos de Monei dentro de un contenedor
+function renderMoneiCharges(charges, container) {
+  container.innerHTML = '';
+  if (!charges.length) {
+    container.innerHTML = '<p>No hay pagos de Monei para este cliente.</p>';
+    return;
+  }
+  const details = document.createElement('details');
+  details.className = 'monei-payments mt-2 mb-3';
+  const summary = document.createElement('summary');
+  summary.className = 'font-weight-bold';
+  summary.innerText = `Pagos Monei (${charges.length})`;
+  details.appendChild(summary);
+
+  const ul = document.createElement('ul');
+  ul.className = 'list-unstyled';
+  charges.forEach(c => {
+    const date = new Date(c.createdAt).toLocaleString();
+    const li = document.createElement('li');
+    li.innerText = `ID ${c.id} — ${(c.amount / 100).toFixed(2)} ${c.currency} — ${c.status} — ${date}`;
+    ul.appendChild(li);
+  });
+
+  details.appendChild(ul);
+  container.appendChild(details);
+}
+// ────────────────────────────────────────────────────────────────────────
+
+
 
 
 
