@@ -578,6 +578,8 @@ async function renderPayPalTransactions(txs, container, panel) {
 
 // ─── MONEI: carga, reembolso y renderizado “clavado” a Stripe ────────────────────
 
+// ─── MONEI: carga, renderizado y reembolso ────────────────────────────
+
 // 1) Carga los pagos de Monei desde tu ruta
 async function loadMoneiCharges({ email, phone }) {
   try {
@@ -604,10 +606,16 @@ async function loadMoneiCharges({ email, phone }) {
 }
 
 // 2) Reembolso completo/parcial de Monei
-async function refundMoneiCharge(chargeId, amountCents, panel) {
+async function refundMoneiCharge(paymentId, amount, panel) {
   try {
     const { monei_api_key } = getMoneiConfig();
-    console.log('📦 Payload enviado a /refund-monei-charge:', { chargeId, amount: amountCents });
+    // force integer céntimos y convertimos a string
+    const cents = Math.round(amount);
+    const payload = {
+      paymentId,
+      amount: String(cents)
+    };
+    console.log('📦 Payload enviado a /refund-monei-charge:', payload);
 
     const res = await fetch(`${API_BASE}/refund-monei-charge`, {
       method: 'POST',
@@ -615,12 +623,8 @@ async function refundMoneiCharge(chargeId, amountCents, panel) {
         ...getHeaders(),
         'x-monei-api-key': monei_api_key
       },
-      body: JSON.stringify({
-        chargeId,
-        amount: amountCents    // siempre pasamos los céntimos al backend
-      })
+      body: JSON.stringify(payload)
     });
-
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: res.statusText }));
       throw new Error(err.error || `HTTP ${res.status}`);
@@ -632,8 +636,8 @@ async function refundMoneiCharge(chargeId, amountCents, panel) {
     showMessage(panel, `✅ Reembolso OK (ID: ${refund.id})`);
 
     // recarga sólo la sección de Monei
-    const billing   = JSON.parse(panel.dataset.billing);
-    const charges   = await loadMoneiCharges({ email: billing.email, phone: billing.phone });
+    const { email, phone } = JSON.parse(panel.dataset.billing);
+    const charges = await loadMoneiCharges({ email, phone });
     const container = panel.querySelector('.monei-container');
     renderMoneiCharges(charges, container, panel);
 
@@ -656,7 +660,7 @@ function renderMoneiCharges(charges, container, panel) {
   }
 
   const details = document.createElement('details');
-  details.className = 'stripe-payments mt-2 mb-3'; // reutilizamos la misma clase de Stripe
+  details.className = 'stripe-payments mt-2 mb-3'; // reutilizamos la clase de Stripe
   const summary = document.createElement('summary');
   summary.className = 'font-weight-bold';
   summary.innerText = `Pagos Monei (${charges.length})`;
@@ -668,7 +672,7 @@ function renderMoneiCharges(charges, container, panel) {
   charges.forEach(c => {
     const fecha    = new Date(c.createdAt).toLocaleString();
     const title    = `${c.metadata?.products || c.description || `ID ${c.id}`} (${fecha})`;
-    const amount   = (c.amount / 100).toFixed(2);    // mostramos en euros
+    const amount   = (c.amount / 100).toFixed(2);
     const isFull   = c.status === 'REFUNDED';
     const badgeClass = isFull ? 'success' : (c.status === 'FAILED' ? 'danger' : 'success');
     const statusTxt  = isFull ? 'Reembolsado' : (c.status === 'FAILED' ? 'Fallido' : 'Exitoso');
@@ -677,8 +681,14 @@ function renderMoneiCharges(charges, container, panel) {
     li.className = 'mb-4 w-100';
     li.innerHTML = `
       <div class="d-flex flex-wrap justify-content-between align-items-center mb-2">
-        <div class="flex-fill mr-2">${title} — ${amount} ${c.currency}</div>
-        <div><span class="badge badge-${badgeClass}">${statusTxt}</span></div>
+        <div class="flex-fill mr-2">
+          ${title} — ${amount} ${c.currency}
+        </div>
+        <div>
+          <span class="badge badge-${badgeClass}" style="padding:0.25em 0.5em;">
+            ${statusTxt}
+          </span>
+        </div>
       </div>
     `;
 
@@ -688,10 +698,12 @@ function renderMoneiCharges(charges, container, panel) {
     btnFull.innerText = 'Reembolso completo';
     btnFull.disabled  = isFull;
     btnFull.className = 'btn btn-danger btn-block mt-2';
-    btnFull.addEventListener('click', () => refundMoneiCharge(c.id, c.amount, panel));
+    btnFull.addEventListener('click', () =>
+      refundMoneiCharge(c.id, c.amount, panel)
+    );
     li.appendChild(btnFull);
 
-    // Botón reembolso parcial
+    // Botón reembolso parcial + form oculto
     const btnPar = document.createElement('button');
     btnPar.type      = 'button';
     btnPar.innerText = 'Reembolso parcial';
@@ -699,7 +711,6 @@ function renderMoneiCharges(charges, container, panel) {
     btnPar.className = 'btn btn-warning btn-block mt-2';
     li.appendChild(btnPar);
 
-    // Formulario parcial (oculto)
     const form = document.createElement('form');
     form.className    = 'mt-2 mb-3 w-100';
     form.style.display= 'none';
@@ -728,7 +739,7 @@ function renderMoneiCharges(charges, container, panel) {
 
     li.appendChild(form);
 
-    // listeners
+    // Listeners
     btnPar.addEventListener('click', () => {
       form.style.display = 'block';
       btnPar.style.display = 'none';
@@ -744,7 +755,6 @@ function renderMoneiCharges(charges, container, panel) {
       if (isNaN(v) || v <= 0 || v > parseFloat(amount)) {
         return alert(`Importe inválido (0 < importe ≤ ${amount})`);
       }
-      // convertimos euros a céntimos
       const cents = Math.round(v * 100);
       await refundMoneiCharge(c.id, cents, panel);
     });
@@ -755,6 +765,8 @@ function renderMoneiCharges(charges, container, panel) {
   details.appendChild(ul);
   container.appendChild(details);
 }
+// ────────────────────────────────────────────────────────────────────────
+
 // fin ----------------------------------------------------
 
 
