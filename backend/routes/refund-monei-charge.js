@@ -7,7 +7,7 @@ const router  = express.Router();
 // Header: x-monei-api-key: pk_live_xxx
 // Header: x-zendesk-secret: <tu_shared_secret>
 router.post('/', async (req, res) => {
-  // 1) Validar seguridad con x-zendesk-secret
+  // 1) Validar seguridad
   const zendeskSecret = req.get('x-zendesk-secret');
   if (!zendeskSecret || zendeskSecret !== process.env.ZENDESK_SHARED_SECRET) {
     return res.status(401).json({ error: 'Unauthorized: x-zendesk-secret inválido' });
@@ -20,28 +20,26 @@ router.post('/', async (req, res) => {
     return res.status(400).json({ error: 'Falta x-monei-api-key en headers.' });
   }
   if (!chargeId || typeof amount !== 'number') {
-    return res.status(400).json({ error: 'Cuerpo inválido: necesita chargeId y amount.' });
+    return res.status(400).json({ error: 'Cuerpo inválido: necesita chargeId y amount (entero en céntimos).' });
   }
 
   try {
     // 3) Llamada al endpoint de refund de Monei
-    // Atención: el endpoint REST es /v1/payments/{payment_id}/refund
     const url = `https://api.monei.com/v1/payments/${chargeId}/refund`;
     const response = await fetch(url, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${moneiApiKey}`,   // !! con prefijo Bearer
+        'Authorization': `Bearer ${moneiApiKey}`,   // con prefijo Bearer
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        // Monei espera el amount en la unidad de la moneda (p. ej. 19.99), no en céntimos.
-        amount: (amount / 100).toFixed(2)
+        amount: amount   // <-- entero en céntimos
       })
     });
 
     const result = await response.json();
 
-    // 4) Manejo de errores de Monei
+    // 4) Manejo de errores
     if (!response.ok) {
       console.error('❌ Monei refund error:', result);
       return res.status(response.status).json({
@@ -50,7 +48,7 @@ router.post('/', async (req, res) => {
       });
     }
 
-    // 5) OK: devolvemos el objeto refund tal cual viene de Monei
+    // 5) OK: devolvemos el objeto refund
     res.json({
       success: true,
       refund: result
