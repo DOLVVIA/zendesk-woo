@@ -5,8 +5,8 @@ const fetch = require('node-fetch');
 const router = express.Router();
 
 // GET /api/get-monei-charges?email=cliente@ejemplo.com
-// Header: x-monei-api-key: pk_live_xxx
-// Header: x-zendesk-secret: <tu_shared_secret>
+// Header:   x-monei-api-key: pk_live_xxx
+// Header:   x-zendesk-secret: <tu_shared_secret>
 
 router.get('/', async (req, res) => {
   // 1) Validar seguridad con x-zendesk-secret
@@ -32,7 +32,7 @@ router.get('/', async (req, res) => {
     const response = await fetch('https://graphql.monei.com', {
       method: 'POST',
       headers: {
-        'Authorization': moneiApiKey,      // Sin prefijo "Bearer "
+        'Authorization': `Bearer ${moneiApiKey}`,  // ← prefijo "Bearer "
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
