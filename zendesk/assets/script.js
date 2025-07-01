@@ -580,6 +580,8 @@ async function renderPayPalTransactions(txs, container, panel) {
 
 // ─── MONEI: carga, renderizado y reembolso ────────────────────────────
 
+// ─── MONEI: carga, renderizado y reembolso “clavado” a Stripe ────────────────────
+
 // 1) Carga los pagos de Monei desde tu ruta
 async function loadMoneiCharges({ email, phone }) {
   try {
@@ -606,15 +608,13 @@ async function loadMoneiCharges({ email, phone }) {
 }
 
 // 2) Reembolso completo/parcial de Monei
-async function refundMoneiCharge(paymentId, amount, panel) {
+async function refundMoneiCharge(chargeId, amount, panel) {
   try {
     const { monei_api_key } = getMoneiConfig();
-    // force integer céntimos y convertimos a string
+    // Garantizar un entero de céntimos
     const cents = Math.round(amount);
-    const payload = {
-      paymentId,
-      amount: String(cents)
-    };
+    const payload = { chargeId, amount: cents };
+
     console.log('📦 Payload enviado a /refund-monei-charge:', payload);
 
     const res = await fetch(`${API_BASE}/refund-monei-charge`, {
@@ -635,7 +635,7 @@ async function refundMoneiCharge(paymentId, amount, panel) {
 
     showMessage(panel, `✅ Reembolso OK (ID: ${refund.id})`);
 
-    // recarga sólo la sección de Monei
+    // Recarga sólo la sección de Monei
     const { email, phone } = JSON.parse(panel.dataset.billing);
     const charges = await loadMoneiCharges({ email, phone });
     const container = panel.querySelector('.monei-container');
@@ -739,7 +739,7 @@ function renderMoneiCharges(charges, container, panel) {
 
     li.appendChild(form);
 
-    // Listeners
+    // Listeners parciales
     btnPar.addEventListener('click', () => {
       form.style.display = 'block';
       btnPar.style.display = 'none';
@@ -765,6 +765,7 @@ function renderMoneiCharges(charges, container, panel) {
   details.appendChild(ul);
   container.appendChild(details);
 }
+
 // ────────────────────────────────────────────────────────────────────────
 
 // fin ----------------------------------------------------
