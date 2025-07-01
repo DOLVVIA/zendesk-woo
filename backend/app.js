@@ -6,25 +6,27 @@ const cors = require('cors');
 const path = require('path');
 
 // Importación de rutas
-const buscarPedidosRoute         = require('./routes/orders');
-const editarDireccionRoutes      = require('./routes/editar-ruta');
-const getVariacionesRoutes       = require('./routes/get-variaciones');
-const editarItemRoutes           = require('./routes/editar-item');
-const cambiarEstadoRoutes        = require('./routes/cambiar-estado');
-const getEstadosRoutes           = require('./routes/get-estados');
-const eliminarItemRoutes         = require('./routes/eliminar-item');
-const anadirItemRoutes           = require('./routes/anadir-item');
-const getProductosRoutes         = require('./routes/get-productos');
-const getCiudadesRoutes          = require('./routes/get-ciudades');
-const getProvinciasRoutes        = require('./routes/get-provincias');
-const getStripeChargesRoutes     = require('./routes/get-stripe-charges');
-const refundStripeRoutes         = require('./routes/refund-stripe');
-const getPayPalTransactionsRoutes= require('./routes/get-paypal-transactions');
-const refundPayPalRoutes         = require('./routes/refund-paypal');
-const bbvaRoutes                 = require('./routes/bbva-transfer');
+const buscarPedidosRoute          = require('./routes/orders');
+const editarDireccionRoutes       = require('./routes/editar-ruta');
+const getVariacionesRoutes        = require('./routes/get-variaciones');
+const editarItemRoutes            = require('./routes/editar-item');
+const cambiarEstadoRoutes         = require('./routes/cambiar-estado');
+const getEstadosRoutes            = require('./routes/get-estados');
+const eliminarItemRoutes          = require('./routes/eliminar-item');
+const anadirItemRoutes            = require('./routes/anadir-item');
+const getProductosRoutes          = require('./routes/get-productos');
+const getCiudadesRoutes           = require('./routes/get-ciudades');
+const getProvinciasRoutes         = require('./routes/get-provincias');
+const getStripeChargesRoutes      = require('./routes/get-stripe-charges');
+const refundStripeRoutes          = require('./routes/refund-stripe');
+const getPayPalTransactionsRoutes = require('./routes/get-paypal-transactions');
+const refundPayPalRoutes          = require('./routes/refund-paypal');
+const bbvaRoutes                  = require('./routes/bbva-transfer');
 const buscarPedidosAvanzadoRoutes = require('./routes/buscar-pedido-avanzado');
-const limpiarCacheRoute = require('./routes/limpiar-cache');
+const limpiarCacheRoute           = require('./routes/limpiar-cache');
 
+// Nueva ruta Monei
+const getMoneiChargesRoutes      = require('./routes/get-monei-charges');
 
 const app = express();
 
@@ -51,6 +53,9 @@ app.use('/api/refund-paypal', refundPayPalRoutes);
 app.use('/api/bbva-transfer', bbvaRoutes);
 app.use('/api/buscar-pedido-avanzado', buscarPedidosAvanzadoRoutes);
 app.use('/api/limpiar-cache', limpiarCacheRoute);
+
+// Ruta para listar pagos de Monei
+app.use('/api/get-monei-charges', getMoneiChargesRoutes);
 
 // Servir frontend estático (si lo necesitas)
 app.use(express.static(path.join(__dirname, '../frontend')));

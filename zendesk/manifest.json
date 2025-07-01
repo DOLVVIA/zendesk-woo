@@ -81,6 +81,12 @@
       "required": false,
       "secure": false,
       "default": "live"
+    },
+    {
+      "name": "monei_api_key",
+      "type": "text",
+      "required": true,
+      "secure": true
     }
   ]
 }

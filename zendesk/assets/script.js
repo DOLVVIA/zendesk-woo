@@ -926,6 +926,18 @@ data.pedidos.forEach(pedido => {
   panel.appendChild(paypalContainer);
 }
 
+// ─── MONEI: carga y renderizado ────────────────────────────
+const moneiContainer = document.createElement('div');
+moneiContainer.className = 'monei-container mt-2 mb-3';
+const billingInfo = pedido.billing || {};
+const moneiInfo = { email: billingInfo.email, phone: billingInfo.phone };
+const moneiCharges = (billingInfo.email || billingInfo.phone)
+  ? await loadMoneiCharges(moneiInfo)
+  : [];
+renderMoneiCharges(moneiCharges, moneiContainer);
+panel.appendChild(moneiContainer);
+//fin monei 
+
 
         // Sección BBVA SEPA-TRANSFER
         {
