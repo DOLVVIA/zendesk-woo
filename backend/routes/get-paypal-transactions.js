@@ -76,7 +76,7 @@ router.get('/', async (req, res) => {
     return res.status(500).json({ error: 'Pedido WooCommerce no encontrado' });
   }
 
-  // 3) Recolectar transacciones (sin filtro por email)
+  // 3) Recolectar transacciones
   const ONE_DAY_MS = 24 * 60 * 60 * 1000;
   const BLOCK_MS = 30 * ONE_DAY_MS;
   const nowMs = Date.now();
@@ -127,10 +127,13 @@ router.get('/', async (req, res) => {
     }
   }
 
-  // 4) Filtrar por email recibido
-  const filtered = allTxs.filter(t =>
-    t.payer_info?.email_address?.toLowerCase() === email
-  );
+  // 4) Filtrar por email recibido en diferentes campos
+  const filtered = allTxs.filter(t => {
+    const payer  = t.payer_info?.email_address?.toLowerCase();
+    const payee  = t.transaction_info?.payee_email?.toLowerCase();
+    const subject= t.transaction_info?.transaction_subject?.toLowerCase();
+    return payer === email || payee === email || (subject && subject.includes(email));
+  });
 
   // 5) Ordenar y formatear
   const output = filtered
