@@ -55,6 +55,7 @@ router.get('/', async (req, res) => {
     return res.status(500).json({ error: 'Error autenticando en PayPal.' });
   }
 
+  //gggg//
   const now = new Date();
   const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
   const allTx = [];
